@@ -18,7 +18,7 @@ namespace PrintForm
         // Menyimpan gambar yang akan di-print via PrintDocument
         private Image? _imageToPrint;
         private static readonly HttpClient Http = CreateHttpClient();
-        private const string ServerBaseUrl = "http://127.0.0.1:3000";
+        private readonly string _serverBaseUrl = AppConfig.LoadServerBaseUrl();
         private string? _clientId;
         private System.Windows.Forms.Timer? _heartbeatTimer;
         private System.Windows.Forms.Timer? _pingTimer;
@@ -67,6 +67,7 @@ namespace PrintForm
 
             comboPrinters.SelectedIndexChanged += comboPrinters_SelectedIndexChanged;
 
+            labelServerUrl.Text = $"Server: {_serverBaseUrl}";
             statusLabel.Text = "Siap. Pilih printer lalu buka Print Job.";
 
             await EnsureRegisteredAsync();
@@ -103,7 +104,7 @@ namespace PrintForm
         {
             if (_jobListForm == null || _jobListForm.IsDisposed)
             {
-                _jobListForm = new JobListForm(Http, ServerBaseUrl, () => _clientId, PrintJobFromListAsync, RejectJobFromListAsync);
+                _jobListForm = new JobListForm(Http, _serverBaseUrl, () => _clientId, PrintJobFromListAsync, RejectJobFromListAsync);
             }
 
             _jobListForm.Show();
@@ -227,7 +228,7 @@ namespace PrintForm
                 };
                 var json = JsonSerializer.Serialize(payload);
                 using var content = new StringContent(json, Encoding.UTF8, "application/json");
-                using var response = await Http.PostAsync($"{ServerBaseUrl}/api/clients/register", content);
+                using var response = await Http.PostAsync($"{_serverBaseUrl}/api/clients/register", content);
                 var responseBody = await response.Content.ReadAsStringAsync();
                 if (!response.IsSuccessStatusCode)
                 {
@@ -290,7 +291,7 @@ namespace PrintForm
                 };
                 var json = JsonSerializer.Serialize(payload);
                 using var content = new StringContent(json, Encoding.UTF8, "application/json");
-                using var response = await Http.PostAsync($"{ServerBaseUrl}/api/clients/heartbeat", content);
+                using var response = await Http.PostAsync($"{_serverBaseUrl}/api/clients/heartbeat", content);
                 if (response.StatusCode == HttpStatusCode.NotFound)
                 {
                     await RegisterClientAsync();
@@ -318,7 +319,7 @@ namespace PrintForm
 
             try
             {
-                using var response = await Http.GetAsync($"{ServerBaseUrl}/api/clients/{_clientId}/ping");
+                using var response = await Http.GetAsync($"{_serverBaseUrl}/api/clients/{_clientId}/ping");
                 if (response.StatusCode == HttpStatusCode.NotFound)
                 {
                     await RegisterClientAsync();
@@ -500,7 +501,7 @@ namespace PrintForm
 
         private async System.Threading.Tasks.Task<string?> DownloadJobFileAsync(string jobId, string originalName)
         {
-            using var response = await Http.GetAsync($"{ServerBaseUrl}/api/jobs/{Uri.EscapeDataString(jobId)}/download");
+            using var response = await Http.GetAsync($"{_serverBaseUrl}/api/jobs/{Uri.EscapeDataString(jobId)}/download");
             if (!response.IsSuccessStatusCode)
             {
                 return null;
@@ -815,7 +816,7 @@ namespace PrintForm
             var payload = new { status };
             var json = JsonSerializer.Serialize(payload);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
-            using var request = new HttpRequestMessage(HttpMethod.Patch, $"{ServerBaseUrl}/api/jobs/{Uri.EscapeDataString(jobId)}")
+            using var request = new HttpRequestMessage(HttpMethod.Patch, $"{_serverBaseUrl}/api/jobs/{Uri.EscapeDataString(jobId)}")
             {
                 Content = content
             };
@@ -864,7 +865,7 @@ namespace PrintForm
                 var payload = new { clientId = _clientId };
                 var json = JsonSerializer.Serialize(payload);
                 using var content = new StringContent(json, Encoding.UTF8, "application/json");
-                Http.PostAsync($"{ServerBaseUrl}/api/clients/unregister", content)
+                Http.PostAsync($"{_serverBaseUrl}/api/clients/unregister", content)
                     .GetAwaiter()
                     .GetResult();
             }

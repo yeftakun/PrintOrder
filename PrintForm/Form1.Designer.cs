@@ -32,6 +32,7 @@
             comboPrinters = new ComboBox();
             btnConfig = new Button();
             btnJobList = new Button();
+            labelServerUrl = new Label();
             statusStrip1 = new StatusStrip();
             statusLabel = new ToolStripStatusLabel();
             printDocument1 = new System.Drawing.Printing.PrintDocument();
@@ -77,13 +78,22 @@
             btnJobList.UseVisualStyleBackColor = true;
             btnJobList.Click += btnJobList_Click;
             // 
+            // labelServerUrl
+            // 
+            labelServerUrl.AutoEllipsis = true;
+            labelServerUrl.Location = new Point(20, 138);
+            labelServerUrl.Name = "labelServerUrl";
+            labelServerUrl.Size = new Size(530, 20);
+            labelServerUrl.TabIndex = 5;
+            labelServerUrl.Text = "Server: -";
+            // 
             // statusStrip1
             // 
             statusStrip1.ImageScalingSize = new Size(20, 20);
             statusStrip1.Items.AddRange(new ToolStripItem[] { statusLabel });
-            statusStrip1.Location = new Point(0, 154);
+            statusStrip1.Location = new Point(0, 184);
             statusStrip1.Name = "statusStrip1";
-            statusStrip1.Size = new Size(420, 26);
+            statusStrip1.Size = new Size(560, 26);
             statusStrip1.TabIndex = 4;
             statusStrip1.Text = "statusStrip1";
             // 
@@ -103,14 +113,15 @@
             // 
             AutoScaleDimensions = new SizeF(8F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(420, 180);
+            ClientSize = new Size(560, 210);
+            Controls.Add(labelServerUrl);
             Controls.Add(statusStrip1);
             Controls.Add(btnJobList);
             Controls.Add(btnConfig);
             Controls.Add(comboPrinters);
             Controls.Add(labelPrinter);
             Name = "Form1";
-            Text = "Form1";
+            Text = "PrintForm Client";
             Load += Form1_Load;
             statusStrip1.ResumeLayout(false);
             statusStrip1.PerformLayout();
@@ -124,6 +135,7 @@
         private ComboBox comboPrinters;
         private Button btnConfig;
         private Button btnJobList;
+        private Label labelServerUrl;
         private StatusStrip statusStrip1;
         private ToolStripStatusLabel statusLabel;
         private System.Drawing.Printing.PrintDocument printDocument1;

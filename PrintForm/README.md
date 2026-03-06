@@ -9,6 +9,7 @@ WinForms client for receiving and printing jobs from the PrintForm server.
 - A local printer installed
 
 Optional (for better PDF printing):
+
 - SumatraPDF (recommended). If not installed, the client falls back to Microsoft Edge.
 
 ## Run
@@ -17,7 +18,14 @@ Optional (for better PDF printing):
 dotnet run --project .\PrintForm\PrintForm.csproj
 ```
 
-The server URL is configured in `PrintForm/Form1.cs` as `ServerBaseUrl`.
+On first run, the app creates `printform.ini` next to the executable (for `dotnet run`, this is typically in `PrintForm/bin/...`).
+
+Set server URL in this file:
+
+```ini
+[server]
+base_url=http://127.0.0.1:3000
+```
 
 ## What it does
 
@@ -49,4 +57,4 @@ The server URL is configured in `PrintForm/Form1.cs` as `ServerBaseUrl`.
 ## Troubleshooting
 
 - If PDF printing fails, install SumatraPDF and try again.
-- If the client does not appear online, make sure the server is running and `ServerBaseUrl` is correct.
+- If the client does not appear online, make sure the server is running and `base_url` in `printform.ini` is correct.
