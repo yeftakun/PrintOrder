@@ -8,6 +8,7 @@ namespace PrintForm
     {
         private const string DefaultServerBaseUrl = "http://127.0.0.1:3000";
         private const string ConfigFileName = "printform.ini";
+        private const string ClientIdFileName = "printform.client-id";
 
         public static string LoadServerBaseUrl()
         {
@@ -53,6 +54,32 @@ namespace PrintForm
             return DefaultServerBaseUrl;
         }
 
+        public static string LoadOrCreateClientId()
+        {
+            var clientIdPath = Path.Combine(AppContext.BaseDirectory, ClientIdFileName);
+
+            try
+            {
+                if (File.Exists(clientIdPath))
+                {
+                    var existing = File.ReadAllText(clientIdPath).Trim();
+                    if (TryNormalizeGuid(existing, out var normalized))
+                    {
+                        return normalized;
+                    }
+                }
+
+                var generated = Guid.NewGuid().ToString("D");
+                File.WriteAllText(clientIdPath, generated + Environment.NewLine, new UTF8Encoding(false));
+                return generated;
+            }
+            catch
+            {
+                // Fallback: tetap punya ID walau gagal persist.
+                return Guid.NewGuid().ToString("D");
+            }
+        }
+
         private static void EnsureConfigExists(string configPath)
         {
             if (File.Exists(configPath))
@@ -89,6 +116,18 @@ namespace PrintForm
             return Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri)
                 && (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
                     || string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool TryNormalizeGuid(string value, out string normalized)
+        {
+            if (Guid.TryParse(value, out var guid))
+            {
+                normalized = guid.ToString("D");
+                return true;
+            }
+
+            normalized = string.Empty;
+            return false;
         }
     }
 }

@@ -31,6 +31,7 @@ base_url=http://127.0.0.1:3000
 
 - Registers to the server and sends heartbeat updates.
 - Polls ping messages from the server.
+- Uses a persistent client GUID stored in `printform.client-id` next to the executable.
 - Shows a Job List window:
   - `Print` for jobs with status `ready`
   - `Retry` for jobs with status `pending`
@@ -53,6 +54,11 @@ base_url=http://127.0.0.1:3000
 - `failed`: download/print failure.
 - `rejected`: rejected by the client.
 - `canceled`: canceled by the web UI.
+
+## Client identity notes
+
+- The client reuses the same GUID on every restart (`printform.client-id`).
+- The app does not call unregister on close; server presence should be derived from heartbeat timeout (`last_seen_at` + TTL).
 
 ## Troubleshooting
 

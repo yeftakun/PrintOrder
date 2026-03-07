@@ -19,7 +19,7 @@ namespace PrintForm
         private Image? _imageToPrint;
         private static readonly HttpClient Http = CreateHttpClient();
         private readonly string _serverBaseUrl = AppConfig.LoadServerBaseUrl();
-        private string? _clientId;
+        private string? _clientId = AppConfig.LoadOrCreateClientId();
         private System.Windows.Forms.Timer? _heartbeatTimer;
         private System.Windows.Forms.Timer? _pingTimer;
         private bool _registerInProgress;
@@ -239,7 +239,11 @@ namespace PrintForm
                 using var doc = JsonDocument.Parse(responseBody);
                 if (doc.RootElement.TryGetProperty("id", out var id))
                 {
-                    _clientId = id.GetString();
+                    var idValue = id.GetString();
+                    if (Guid.TryParse(idValue, out var parsedGuid))
+                    {
+                        _clientId = parsedGuid.ToString("D");
+                    }
                 }
 
                 statusLabel.Text = "Terhubung ke server.";
@@ -825,10 +829,7 @@ namespace PrintForm
 
         private async System.Threading.Tasks.Task EnsureRegisteredAsync()
         {
-            if (!string.IsNullOrWhiteSpace(_clientId))
-            {
-                return;
-            }
+            _clientId ??= AppConfig.LoadOrCreateClientId();
 
             await RegisterClientAsync();
         }
@@ -855,24 +856,7 @@ namespace PrintForm
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
             StopTimers();
-            if (string.IsNullOrWhiteSpace(_clientId))
-            {
-                return;
-            }
-
-            try
-            {
-                var payload = new { clientId = _clientId };
-                var json = JsonSerializer.Serialize(payload);
-                using var content = new StringContent(json, Encoding.UTF8, "application/json");
-                Http.PostAsync($"{_serverBaseUrl}/api/clients/unregister", content)
-                    .GetAwaiter()
-                    .GetResult();
-            }
-            catch
-            {
-                // Abaikan kegagalan saat shutdown
-            }
+            // Jangan unregister saat shutdown: biarkan status offline dihitung dari timeout heartbeat.
         }
 
         private void StopTimers()
