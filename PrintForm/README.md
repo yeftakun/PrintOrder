@@ -18,7 +18,10 @@ Optional (for better PDF printing):
 dotnet run --project .\PrintForm\PrintForm.csproj
 ```
 
-On first run, the app creates `printform.ini` next to the executable (for `dotnet run`, this is typically in `PrintForm/bin/...`).
+Saat startup, jika `printform.ini` atau `printform.client-id` belum ada, aplikasi akan menampilkan konfirmasi pembuatan file.
+Jika disetujui, aplikasi akan meminta izin `Run as administrator` agar file dapat dibuat (terutama bila aplikasi terpasang di folder yang butuh hak admin), lalu menampilkan notifikasi file apa saja yang berhasil dibuat.
+
+Lokasi file tetap berada di folder executable (untuk `dotnet run`, biasanya di `PrintForm/bin/...`).
 
 Set server URL in this file:
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 
@@ -10,10 +11,59 @@ namespace PrintForm
         private const string ConfigFileName = "printform.ini";
         private const string ClientIdFileName = "printform.client-id";
 
+        public static string StorageDirectoryPath => AppContext.BaseDirectory;
+
+        public static string[] GetMissingRequiredFiles()
+        {
+            var missing = new List<string>();
+
+            if (!File.Exists(GetConfigFilePath()))
+            {
+                missing.Add(ConfigFileName);
+            }
+
+            if (!File.Exists(GetClientIdFilePath()))
+            {
+                missing.Add(ClientIdFileName);
+            }
+
+            return missing.ToArray();
+        }
+
+        public static string[] CreateMissingRequiredFiles()
+        {
+            var created = new List<string>();
+            var configPath = GetConfigFilePath();
+            var clientIdPath = GetClientIdFilePath();
+
+            if (!File.Exists(configPath))
+            {
+                WriteDefaultConfig(configPath);
+                created.Add(ConfigFileName);
+            }
+
+            if (!File.Exists(clientIdPath))
+            {
+                WriteNewClientId(clientIdPath);
+                created.Add(ClientIdFileName);
+            }
+
+            return created.ToArray();
+        }
+
+        public static string GetConfigFilePath()
+        {
+            return Path.Combine(StorageDirectoryPath, ConfigFileName);
+        }
+
+        public static string GetClientIdFilePath()
+        {
+            return Path.Combine(StorageDirectoryPath, ClientIdFileName);
+        }
+
         public static string LoadServerBaseUrl()
         {
-            var configPath = Path.Combine(AppContext.BaseDirectory, ConfigFileName);
-            EnsureConfigExists(configPath);
+            var configPath = GetConfigFilePath();
 
             try
             {
@@ -56,7 +106,7 @@ namespace PrintForm
 
         public static string LoadOrCreateClientId()
         {
-            var clientIdPath = Path.Combine(AppContext.BaseDirectory, ClientIdFileName);
+            var clientIdPath = GetClientIdFilePath();
 
             try
             {
@@ -69,8 +119,7 @@ namespace PrintForm
                     }
                 }
 
-                var generated = Guid.NewGuid().ToString("D");
-                File.WriteAllText(clientIdPath, generated + Environment.NewLine, new UTF8Encoding(false));
+                var generated = WriteNewClientId(clientIdPath);
                 return generated;
             }
             catch
@@ -80,13 +129,8 @@ namespace PrintForm
             }
         }
 
-        private static void EnsureConfigExists(string configPath)
+        private static void WriteDefaultConfig(string configPath)
         {
-            if (File.Exists(configPath))
-            {
-                return;
-            }
-
             var content = string.Join(Environment.NewLine, new[]
             {
                 "; PrintForm configuration",
@@ -96,14 +140,14 @@ namespace PrintForm
                 string.Empty
             });
 
-            try
-            {
-                File.WriteAllText(configPath, content, new UTF8Encoding(false));
-            }
-            catch
-            {
-                // Abaikan jika file tidak bisa dibuat.
-            }
+            File.WriteAllText(configPath, content, new UTF8Encoding(false));
+        }
+
+        private static string WriteNewClientId(string clientIdPath)
+        {
+            var generated = Guid.NewGuid().ToString("D");
+            File.WriteAllText(clientIdPath, generated + Environment.NewLine, new UTF8Encoding(false));
+            return generated;
         }
 
         private static bool IsValidBaseUrl(string value)
