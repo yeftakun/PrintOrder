@@ -51,6 +51,24 @@ namespace PrintForm
             return created.ToArray();
         }
 
+        public static bool IsValidServerBaseUrl(string value)
+        {
+            return IsValidBaseUrl(value);
+        }
+
+        public static void SaveServerBaseUrl(string baseUrl)
+        {
+            var normalized = (baseUrl ?? string.Empty).Trim().Trim('"').TrimEnd('/');
+            if (!IsValidBaseUrl(normalized))
+            {
+                throw new ArgumentException("Nilai base_url tidak valid.", nameof(baseUrl));
+            }
+
+            var configPath = GetConfigFilePath();
+            var content = BuildConfigContent(normalized);
+            File.WriteAllText(configPath, content, new UTF8Encoding(false));
+        }
+
         public static string GetConfigFilePath()
         {
             return Path.Combine(StorageDirectoryPath, ConfigFileName);
@@ -131,16 +149,21 @@ namespace PrintForm
 
         private static void WriteDefaultConfig(string configPath)
         {
-            var content = string.Join(Environment.NewLine, new[]
+            var content = BuildConfigContent(DefaultServerBaseUrl);
+
+            File.WriteAllText(configPath, content, new UTF8Encoding(false));
+        }
+
+        private static string BuildConfigContent(string baseUrl)
+        {
+            return string.Join(Environment.NewLine, new[]
             {
                 "; PrintForm configuration",
                 "; Ubah base_url sesuai alamat server",
                 "[server]",
-                $"base_url={DefaultServerBaseUrl}",
+                $"base_url={baseUrl}",
                 string.Empty
             });
-
-            File.WriteAllText(configPath, content, new UTF8Encoding(false));
         }
 
         private static string WriteNewClientId(string clientIdPath)

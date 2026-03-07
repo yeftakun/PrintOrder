@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Security.Principal;
 using System.Windows.Forms;
@@ -10,6 +11,7 @@ namespace PrintForm
     internal static class Program
     {
         private const string CreateRequiredFilesArgument = "--create-required-files";
+        private const string SaveServerBaseUrlArgument = "--save-server-base-url";
 
         /// <summary>
         ///  The main entry point for the application.
@@ -17,6 +19,11 @@ namespace PrintForm
         [STAThread]
         static void Main(string[] args)
         {
+            if (TryHandleCommandLineActions(args))
+            {
+                return;
+            }
+
             // To customize application configuration such as set high DPI settings or default font,
             // see https://aka.ms/applicationconfiguration.
             ApplicationConfiguration.Initialize();
@@ -27,6 +34,111 @@ namespace PrintForm
             }
 
             Application.Run(new Form1());
+        }
+
+        internal static bool TrySaveServerBaseUrlWithElevation(string baseUrl, out string errorMessage)
+        {
+            errorMessage = string.Empty;
+
+            var normalized = (baseUrl ?? string.Empty).Trim().Trim('"').TrimEnd('/');
+            if (!AppConfig.IsValidServerBaseUrl(normalized))
+            {
+                errorMessage = "Nilai base_url tidak valid. Gunakan URL HTTP/HTTPS yang lengkap.";
+                return false;
+            }
+
+            if (IsRunningAsAdministrator())
+            {
+                try
+                {
+                    AppConfig.SaveServerBaseUrl(normalized);
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    errorMessage = $"Gagal menyimpan file printform.ini: {ex.Message}";
+                    return false;
+                }
+            }
+
+            try
+            {
+                var startInfo = CreateSelfStartInfo(true, SaveServerBaseUrlArgument, normalized);
+                if (startInfo == null)
+                {
+                    errorMessage = "Lokasi executable tidak ditemukan.";
+                    return false;
+                }
+
+                using var process = Process.Start(startInfo);
+                if (process == null)
+                {
+                    errorMessage = "Gagal menjalankan proses administrator.";
+                    return false;
+                }
+
+                process.WaitForExit();
+                if (process.ExitCode != 0)
+                {
+                    errorMessage = "Proses administrator gagal menyimpan konfigurasi.";
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
+            {
+                errorMessage = "Izin administrator dibatalkan oleh pengguna.";
+                return false;
+            }
+            catch (Exception ex)
+            {
+                errorMessage = $"Gagal menjalankan proses administrator: {ex.Message}";
+                return false;
+            }
+        }
+
+        private static bool TryHandleCommandLineActions(string[] args)
+        {
+            if (!TryGetArgumentValue(args, SaveServerBaseUrlArgument, out var baseUrl))
+            {
+                return false;
+            }
+
+            try
+            {
+                AppConfig.SaveServerBaseUrl(baseUrl);
+                Environment.ExitCode = 0;
+            }
+            catch
+            {
+                Environment.ExitCode = 1;
+            }
+
+            return true;
+        }
+
+        private static bool TryGetArgumentValue(string[] args, string argumentName, out string value)
+        {
+            value = string.Empty;
+
+            for (var i = 0; i < args.Length; i++)
+            {
+                if (!string.Equals(args[i], argumentName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (i + 1 >= args.Length)
+                {
+                    return false;
+                }
+
+                value = args[i + 1];
+                return true;
+            }
+
+            return false;
         }
 
         private static bool EnsureRequiredFilesOnStartup(string[] args)
@@ -115,21 +227,13 @@ namespace PrintForm
 
         private static bool RelaunchAsAdministrator()
         {
-            var processPath = Environment.ProcessPath;
-            if (string.IsNullOrWhiteSpace(processPath))
-            {
-                return false;
-            }
-
             try
             {
-                var startInfo = new ProcessStartInfo
+                var startInfo = CreateSelfStartInfo(true, CreateRequiredFilesArgument);
+                if (startInfo == null)
                 {
-                    FileName = processPath,
-                    UseShellExecute = true,
-                    Verb = "runas",
-                    Arguments = CreateRequiredFilesArgument
-                };
+                    return false;
+                }
 
                 Process.Start(startInfo);
                 return true;
@@ -143,6 +247,48 @@ namespace PrintForm
             {
                 return false;
             }
+        }
+
+        private static ProcessStartInfo? CreateSelfStartInfo(bool runAsAdministrator, params string[] appArguments)
+        {
+            var processPath = Environment.ProcessPath;
+            if (string.IsNullOrWhiteSpace(processPath))
+            {
+                return null;
+            }
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = processPath,
+                UseShellExecute = true
+            };
+
+            if (runAsAdministrator)
+            {
+                startInfo.Verb = "runas";
+            }
+
+            // Saat dijalankan via `dotnet run`, process utama adalah dotnet host.
+            // Kita perlu meneruskan path dll app agar relaunch tetap masuk ke aplikasi ini.
+            var commandLineArgs = Environment.GetCommandLineArgs();
+            if (IsDotNetHost(processPath)
+                && commandLineArgs.Length > 0
+                && commandLineArgs[0].EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            {
+                startInfo.ArgumentList.Add(commandLineArgs[0]);
+            }
+
+            foreach (var argument in appArguments)
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+
+            return startInfo;
+        }
+
+        private static bool IsDotNetHost(string processPath)
+        {
+            return string.Equals(Path.GetFileNameWithoutExtension(processPath), "dotnet", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsRunningAsAdministrator()

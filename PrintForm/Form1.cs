@@ -111,6 +111,25 @@ namespace PrintForm
             _jobListForm.BringToFront();
         }
 
+        private void btnSettings_Click(object sender, EventArgs e)
+        {
+            using var settingsForm = new SettingsForm(_serverBaseUrl);
+            var result = settingsForm.ShowDialog(this);
+
+            if (result != DialogResult.OK || string.IsNullOrWhiteSpace(settingsForm.SavedBaseUrl))
+            {
+                statusLabel.Text = "Pengaturan tidak diubah.";
+                return;
+            }
+
+            statusLabel.Text = "Pengaturan disimpan. Restart aplikasi untuk menerapkan base_url baru.";
+            MessageBox.Show(
+                "Perubahan tersimpan ke printform.ini.\nRestart aplikasi agar koneksi memakai base_url terbaru.",
+                "Pengaturan",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+
         private void comboPrinters_SelectedIndexChanged(object? sender, EventArgs e)
         {
             _ = SendHeartbeatAsync();

@@ -32,6 +32,7 @@
             comboPrinters = new ComboBox();
             btnConfig = new Button();
             btnJobList = new Button();
+            btnSettings = new Button();
             labelServerUrl = new Label();
             statusStrip1 = new StatusStrip();
             statusLabel = new ToolStripStatusLabel();
@@ -78,13 +79,23 @@
             btnJobList.UseVisualStyleBackColor = true;
             btnJobList.Click += btnJobList_Click;
             // 
+            // btnSettings
+            // 
+            btnSettings.Location = new Point(270, 60);
+            btnSettings.Name = "btnSettings";
+            btnSettings.Size = new Size(140, 29);
+            btnSettings.TabIndex = 4;
+            btnSettings.Text = "Pengaturan";
+            btnSettings.UseVisualStyleBackColor = true;
+            btnSettings.Click += btnSettings_Click;
+            // 
             // labelServerUrl
             // 
             labelServerUrl.AutoEllipsis = true;
             labelServerUrl.Location = new Point(20, 138);
             labelServerUrl.Name = "labelServerUrl";
             labelServerUrl.Size = new Size(530, 20);
-            labelServerUrl.TabIndex = 5;
+            labelServerUrl.TabIndex = 6;
             labelServerUrl.Text = "Server: -";
             // 
             // statusStrip1
@@ -94,7 +105,7 @@
             statusStrip1.Location = new Point(0, 184);
             statusStrip1.Name = "statusStrip1";
             statusStrip1.Size = new Size(560, 26);
-            statusStrip1.TabIndex = 4;
+            statusStrip1.TabIndex = 5;
             statusStrip1.Text = "statusStrip1";
             // 
             // statusLabel
@@ -116,6 +127,7 @@
             ClientSize = new Size(560, 210);
             Controls.Add(labelServerUrl);
             Controls.Add(statusStrip1);
+            Controls.Add(btnSettings);
             Controls.Add(btnJobList);
             Controls.Add(btnConfig);
             Controls.Add(comboPrinters);
@@ -135,6 +147,7 @@
         private ComboBox comboPrinters;
         private Button btnConfig;
         private Button btnJobList;
+        private Button btnSettings;
         private Label labelServerUrl;
         private StatusStrip statusStrip1;
         private ToolStripStatusLabel statusLabel;

@@ -23,6 +23,8 @@ Jika disetujui, aplikasi akan meminta izin `Run as administrator` agar file dapa
 
 Lokasi file tetap berada di folder executable (untuk `dotnet run`, biasanya di `PrintForm/bin/...`).
 
+Untuk mengubah `base_url`, gunakan tombol `Pengaturan` di aplikasi. Saat menekan `Simpan`, aplikasi akan meminta izin administrator (UAC) untuk menyimpan `printform.ini`.
+
 Set server URL in this file:
 
 ```ini
@@ -35,6 +37,7 @@ base_url=http://127.0.0.1:3000
 - Registers to the server and sends heartbeat updates.
 - Polls ping messages from the server.
 - Uses a persistent client GUID stored in `printform.client-id` next to the executable.
+- Menyediakan window `Pengaturan` untuk edit nilai `[server] -> base_url` pada `printform.ini`.
 - Shows a Job List window:
   - `Print` for jobs with status `ready`
   - `Retry` for jobs with status `pending`
