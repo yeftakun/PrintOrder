@@ -68,6 +68,7 @@ namespace PrintForm
             comboPrinters.SelectedIndexChanged += comboPrinters_SelectedIndexChanged;
 
             labelServerUrl.Text = $"Server: {_serverBaseUrl}";
+            UpdateClientIdLabel();
             statusLabel.Text = "Siap. Pilih printer lalu buka Print Job.";
 
             await EnsureRegisteredAsync();
@@ -262,6 +263,7 @@ namespace PrintForm
                     if (Guid.TryParse(idValue, out var parsedGuid))
                     {
                         _clientId = parsedGuid.ToString("D");
+                        UpdateClientIdLabel();
                     }
                 }
 
@@ -849,8 +851,15 @@ namespace PrintForm
         private async System.Threading.Tasks.Task EnsureRegisteredAsync()
         {
             _clientId ??= AppConfig.LoadOrCreateClientId();
+            UpdateClientIdLabel();
 
             await RegisterClientAsync();
+        }
+
+        private void UpdateClientIdLabel()
+        {
+            var value = string.IsNullOrWhiteSpace(_clientId) ? "-" : _clientId;
+            labelClientId.Text = $"Client ID: {value}";
         }
 
         private string? GetSelectedPrinterName()

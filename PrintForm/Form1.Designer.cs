@@ -34,6 +34,7 @@
             btnJobList = new Button();
             btnSettings = new Button();
             labelServerUrl = new Label();
+            labelClientId = new Label();
             statusStrip1 = new StatusStrip();
             statusLabel = new ToolStripStatusLabel();
             printDocument1 = new System.Drawing.Printing.PrintDocument();
@@ -98,11 +99,20 @@
             labelServerUrl.TabIndex = 6;
             labelServerUrl.Text = "Server: -";
             // 
+            // labelClientId
+            // 
+            labelClientId.AutoEllipsis = true;
+            labelClientId.Location = new Point(20, 160);
+            labelClientId.Name = "labelClientId";
+            labelClientId.Size = new Size(530, 20);
+            labelClientId.TabIndex = 7;
+            labelClientId.Text = "Client ID: -";
+            // 
             // statusStrip1
             // 
             statusStrip1.ImageScalingSize = new Size(20, 20);
             statusStrip1.Items.AddRange(new ToolStripItem[] { statusLabel });
-            statusStrip1.Location = new Point(0, 184);
+            statusStrip1.Location = new Point(0, 204);
             statusStrip1.Name = "statusStrip1";
             statusStrip1.Size = new Size(560, 26);
             statusStrip1.TabIndex = 5;
@@ -124,7 +134,8 @@
             // 
             AutoScaleDimensions = new SizeF(8F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(560, 210);
+            ClientSize = new Size(560, 230);
+            Controls.Add(labelClientId);
             Controls.Add(labelServerUrl);
             Controls.Add(statusStrip1);
             Controls.Add(btnSettings);
@@ -149,6 +160,7 @@
         private Button btnJobList;
         private Button btnSettings;
         private Label labelServerUrl;
+        private Label labelClientId;
         private StatusStrip statusStrip1;
         private ToolStripStatusLabel statusLabel;
         private System.Drawing.Printing.PrintDocument printDocument1;
