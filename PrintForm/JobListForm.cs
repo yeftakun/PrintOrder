@@ -27,6 +27,8 @@ namespace PrintForm
         {
             Interval = 5000
         };
+        private bool _isLoading;
+        private bool _pendingRefresh;
 
         public JobListForm(HttpClient http, string serverBaseUrl, Func<string?> getClientId, Func<PrintJob, Task> printJobAsync, Func<PrintJob, Task> rejectJobAsync)
         {
@@ -125,6 +127,22 @@ namespace PrintForm
             Shown += async (_, _) => await LoadJobsAsync();
             _refreshTimer.Tick += async (_, _) => await LoadJobsAsync();
             _refreshTimer.Start();
+        }
+
+        public void RequestRefreshFromRealtime()
+        {
+            if (IsDisposed)
+            {
+                return;
+            }
+
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(RequestRefreshFromRealtime));
+                return;
+            }
+
+            _ = LoadJobsAsync();
         }
 
         private async void Grid_CellContentClick(object? sender, DataGridViewCellEventArgs e)
@@ -230,11 +248,19 @@ namespace PrintForm
 
         private async Task LoadJobsAsync()
         {
+            if (_isLoading)
+            {
+                _pendingRefresh = true;
+                return;
+            }
+
+            _isLoading = true;
             var clientId = _getClientId();
             if (string.IsNullOrWhiteSpace(clientId))
             {
                 _statusLabel.Text = "Client belum terhubung.";
                 _grid.Rows.Clear();
+                _isLoading = false;
                 return;
             }
 
@@ -255,6 +281,15 @@ namespace PrintForm
             catch
             {
                 _statusLabel.Text = "Tidak bisa terhubung ke server.";
+            }
+            finally
+            {
+                _isLoading = false;
+                if (_pendingRefresh)
+                {
+                    _pendingRefresh = false;
+                    _ = LoadJobsAsync();
+                }
             }
         }
 

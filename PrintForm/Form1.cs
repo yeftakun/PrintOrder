@@ -7,8 +7,11 @@ using System.Linq;
 using System.Management;
 using System.Net;
 using System.Net.Http;
+using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace PrintForm
@@ -27,6 +30,9 @@ namespace PrintForm
         private string? _activeJobId;
         private string? _activeJobTempPath;
         private JobListForm? _jobListForm;
+        private ClientWebSocket? _realtimeSocket;
+        private CancellationTokenSource? _realtimeCts;
+        private Task? _realtimeWorker;
 
         public Form1()
         {
@@ -74,6 +80,7 @@ namespace PrintForm
             await EnsureRegisteredAsync();
             StartHeartbeat();
             StartPingPolling();
+            StartRealtime();
         }
 
         // =========================
@@ -141,12 +148,19 @@ namespace PrintForm
         // =========================
         private void printDocument1_PrintPage(object sender, PrintPageEventArgs e)
         {
+            var graphics = e.Graphics;
+            if (graphics == null)
+            {
+                e.HasMorePages = false;
+                return;
+            }
+
             if (_imageToPrint == null)
             {
                 using Font font = new Font("Segoe UI", 12);
-                e.Graphics.DrawString("Tidak ada dokumen gambar yang dipilih.",
-                                      font, Brushes.Black,
-                                      e.MarginBounds.Location);
+                graphics.DrawString("Tidak ada dokumen gambar yang dipilih.",
+                                    font, Brushes.Black,
+                                    e.MarginBounds.Location);
                 e.HasMorePages = false;
                 return;
             }
@@ -176,7 +190,7 @@ namespace PrintForm
                 drawRect = new Rectangle(drawX, m.Top, drawWidth, drawHeight);
             }
 
-            e.Graphics.DrawImage(_imageToPrint, drawRect);
+            graphics.DrawImage(_imageToPrint, drawRect);
 
             e.HasMorePages = false;
         }
@@ -199,7 +213,10 @@ namespace PrintForm
                     TryDeleteTempFile(_activeJobTempPath);
                     _activeJobTempPath = null;
                 }
-                _ = UpdateJobStatusAsync(jobId, e.PrintAction == PrintAction.PrintToPrinter ? "done" : "failed");
+                if (!string.IsNullOrWhiteSpace(jobId))
+                {
+                    _ = UpdateJobStatusAsync(jobId, e.PrintAction == PrintAction.PrintToPrinter ? "done" : "failed");
+                }
             }
 
             if (!isAutoJob && e.PrintAction == PrintAction.PrintToPrinter)
@@ -881,9 +898,10 @@ namespace PrintForm
             }
         }
 
-        private void Form1_FormClosing(object sender, FormClosingEventArgs e)
+        private void Form1_FormClosing(object? sender, FormClosingEventArgs e)
         {
             StopTimers();
+            StopRealtime();
             // Jangan unregister saat shutdown: biarkan status offline dihitung dari timeout heartbeat.
         }
 
@@ -900,6 +918,271 @@ namespace PrintForm
                 _pingTimer.Stop();
                 _pingTimer.Dispose();
             }
+        }
+
+        private void StartRealtime()
+        {
+            if (_realtimeCts != null)
+            {
+                return;
+            }
+
+            _realtimeCts = new CancellationTokenSource();
+            _realtimeWorker = Task.Run(() => RunRealtimeLoopAsync(_realtimeCts.Token));
+        }
+
+        private async Task RunRealtimeLoopAsync(CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                ClientWebSocket? socket = null;
+
+                try
+                {
+                    var realtimeUri = BuildRealtimeUri();
+                    if (realtimeUri == null)
+                    {
+                        return;
+                    }
+
+                    socket = new ClientWebSocket();
+                    socket.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
+                    _realtimeSocket = socket;
+
+                    await socket.ConnectAsync(realtimeUri, cancellationToken);
+                    await SendRealtimeSubscribeAsync(socket, cancellationToken);
+                    await ReceiveRealtimeMessagesAsync(socket, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch
+                {
+                    // Fallback polling tetap berjalan saat realtime gagal.
+                }
+                finally
+                {
+                    if (socket != null)
+                    {
+                        try
+                        {
+                            socket.Dispose();
+                        }
+                        catch
+                        {
+                            // Abaikan dispose error
+                        }
+
+                        if (ReferenceEquals(_realtimeSocket, socket))
+                        {
+                            _realtimeSocket = null;
+                        }
+                    }
+                }
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+            }
+        }
+
+        private Uri? BuildRealtimeUri()
+        {
+            if (!Uri.TryCreate(_serverBaseUrl, UriKind.Absolute, out var baseUri))
+            {
+                return null;
+            }
+
+            var scheme = string.Equals(baseUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+                ? "wss"
+                : "ws";
+
+            var builder = new UriBuilder(baseUri)
+            {
+                Scheme = scheme,
+                Path = "/ws",
+                Query = string.Empty,
+                Fragment = string.Empty
+            };
+
+            if (baseUri.IsDefaultPort)
+            {
+                builder.Port = -1;
+            }
+
+            return builder.Uri;
+        }
+
+        private static async Task SendRealtimeSubscribeAsync(ClientWebSocket socket, CancellationToken cancellationToken)
+        {
+            var subscribePayload = JsonSerializer.Serialize(new
+            {
+                action = "subscribe",
+                channels = new[] { "jobs", "clients", "sessions" }
+            });
+
+            var bytes = Encoding.UTF8.GetBytes(subscribePayload);
+            await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, cancellationToken);
+        }
+
+        private async Task ReceiveRealtimeMessagesAsync(ClientWebSocket socket, CancellationToken cancellationToken)
+        {
+            var buffer = new byte[8192];
+
+            while (!cancellationToken.IsCancellationRequested && socket.State == WebSocketState.Open)
+            {
+                using var messageStream = new MemoryStream();
+                WebSocketReceiveResult? result = null;
+
+                do
+                {
+                    result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
+
+                    if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        try
+                        {
+                            await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "closing", CancellationToken.None);
+                        }
+                        catch
+                        {
+                            // Abaikan close error
+                        }
+                        return;
+                    }
+
+                    if (result.Count > 0)
+                    {
+                        messageStream.Write(buffer, 0, result.Count);
+                    }
+                }
+                while (result != null && !result.EndOfMessage);
+
+                if (result == null || result.MessageType != WebSocketMessageType.Text)
+                {
+                    continue;
+                }
+
+                var payload = Encoding.UTF8.GetString(messageStream.ToArray());
+                HandleRealtimeMessage(payload);
+            }
+        }
+
+        private void HandleRealtimeMessage(string payload)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(payload);
+                if (!doc.RootElement.TryGetProperty("type", out var typeElement))
+                {
+                    return;
+                }
+
+                var eventType = typeElement.GetString();
+                if (string.IsNullOrWhiteSpace(eventType))
+                {
+                    return;
+                }
+
+                switch (eventType)
+                {
+                    case "job.created":
+                    case "job.status.changed":
+                    case "jobs.removed":
+                        if (ShouldRefreshJobsForCurrentClient(doc.RootElement))
+                        {
+                            RequestJobListRefreshFromRealtime();
+                        }
+                        break;
+                }
+            }
+            catch
+            {
+                // Abaikan pesan realtime yang tidak dikenali.
+            }
+        }
+
+        private bool ShouldRefreshJobsForCurrentClient(JsonElement root)
+        {
+            if (string.IsNullOrWhiteSpace(_clientId))
+            {
+                return false;
+            }
+
+            if (!root.TryGetProperty("payload", out var payload))
+            {
+                return true;
+            }
+
+            if (!payload.TryGetProperty("job", out var job))
+            {
+                return true;
+            }
+
+            if (!job.TryGetProperty("targetClientId", out var targetClientIdElement))
+            {
+                return true;
+            }
+
+            var targetClientId = targetClientIdElement.GetString();
+            return string.Equals(targetClientId, _clientId, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void RequestJobListRefreshFromRealtime()
+        {
+            var form = _jobListForm;
+            if (form == null || form.IsDisposed)
+            {
+                return;
+            }
+
+            form.RequestRefreshFromRealtime();
+        }
+
+        private void StopRealtime()
+        {
+            if (_realtimeCts != null)
+            {
+                try
+                {
+                    _realtimeCts.Cancel();
+                }
+                catch
+                {
+                    // Abaikan cancel error
+                }
+
+                _realtimeCts.Dispose();
+                _realtimeCts = null;
+            }
+
+            if (_realtimeSocket != null)
+            {
+                try
+                {
+                    _realtimeSocket.Abort();
+                    _realtimeSocket.Dispose();
+                }
+                catch
+                {
+                    // Abaikan dispose error
+                }
+
+                _realtimeSocket = null;
+            }
+
+            _realtimeWorker = null;
         }
     }
 }

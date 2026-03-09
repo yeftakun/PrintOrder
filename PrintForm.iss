@@ -4,7 +4,7 @@
 ;   & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" .\PrintForm.iss
 
 #define MyAppName "PrintForm"
-#define MyAppVersion "1.0.4"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "PrintForm"
 #define MyAppExeName "PrintForm.exe"
 #define MyPublishDir "artifacts\publish"
