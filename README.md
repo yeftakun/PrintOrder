@@ -20,5 +20,5 @@ build installer (inno setup)
 
 installer output
 ```
-.\artifacts\installer\PrintForm-Setup-1.0.3.exe
+.\artifacts\installer\PrintForm-Setup-1.0.4.exe
 ```

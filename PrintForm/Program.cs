@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Principal;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace PrintForm
@@ -12,6 +13,7 @@ namespace PrintForm
     {
         private const string CreateRequiredFilesArgument = "--create-required-files";
         private const string SaveServerBaseUrlArgument = "--save-server-base-url";
+        private const string SingleInstanceMutexName = "Local\\PrintForm.SingleInstance";
 
         /// <summary>
         ///  The main entry point for the application.
@@ -30,6 +32,17 @@ namespace PrintForm
 
             if (!EnsureRequiredFilesOnStartup(args))
             {
+                return;
+            }
+
+            using var singleInstanceMutex = new Mutex(true, SingleInstanceMutexName, out var isFirstInstance);
+            if (!isFirstInstance)
+            {
+                MessageBox.Show(
+                    "PrintForm sudah berjalan. Tutup aplikasi yang sedang aktif sebelum membuka lagi.",
+                    "PrintForm",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
                 return;
             }
 
