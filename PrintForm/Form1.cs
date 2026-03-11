@@ -7,6 +7,7 @@ using System.Linq;
 using System.Management;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -22,7 +23,12 @@ namespace PrintForm
         private Image? _imageToPrint;
         private static readonly HttpClient Http = CreateHttpClient();
         private readonly string _serverBaseUrl = AppConfig.LoadServerBaseUrl();
+        private readonly SemaphoreSlim _authRefreshLock = new SemaphoreSlim(1, 1);
         private string? _clientId = AppConfig.LoadOrCreateClientId();
+        private string? _accessToken;
+        private string? _refreshToken;
+        private string? _authUserId;
+        private string? _authUsername;
         private System.Windows.Forms.Timer? _heartbeatTimer;
         private System.Windows.Forms.Timer? _pingTimer;
         private bool _registerInProgress;
@@ -33,6 +39,9 @@ namespace PrintForm
         private ClientWebSocket? _realtimeSocket;
         private CancellationTokenSource? _realtimeCts;
         private Task? _realtimeWorker;
+
+        private bool HasSavedAuthState => !string.IsNullOrWhiteSpace(_refreshToken);
+        private bool IsAuthenticated => !string.IsNullOrWhiteSpace(_accessToken);
 
         public Form1()
         {
@@ -74,8 +83,16 @@ namespace PrintForm
             comboPrinters.SelectedIndexChanged += comboPrinters_SelectedIndexChanged;
 
             labelServerUrl.Text = $"Server: {_serverBaseUrl}";
+            LoadPersistedAuthState();
             UpdateClientIdLabel();
+            UpdateAuthUi();
             statusLabel.Text = "Siap. Pilih printer lalu buka Print Job.";
+
+            if (HasSavedAuthState)
+            {
+                statusLabel.Text = "Memulihkan sesi login...";
+                await TryRefreshAccessTokenAsync(updateStatusOnFailure: false);
+            }
 
             await EnsureRegisteredAsync();
             StartHeartbeat();
@@ -112,7 +129,12 @@ namespace PrintForm
         {
             if (_jobListForm == null || _jobListForm.IsDisposed)
             {
-                _jobListForm = new JobListForm(Http, _serverBaseUrl, () => _clientId, PrintJobFromListAsync, RejectJobFromListAsync);
+                _jobListForm = new JobListForm(
+                    _serverBaseUrl,
+                    () => _clientId,
+                    SendAuthorizedAsync,
+                    PrintJobFromListAsync,
+                    RejectJobFromListAsync);
             }
 
             _jobListForm.Show();
@@ -136,6 +158,36 @@ namespace PrintForm
                 "Pengaturan",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
+        }
+
+        private async void btnLogin_Click(object sender, EventArgs e)
+        {
+            if (HasSavedAuthState)
+            {
+                var confirm = MessageBox.Show(
+                    this,
+                    "Keluar dari akun ini?",
+                    "Logout",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+
+                if (confirm != DialogResult.Yes)
+                {
+                    return;
+                }
+
+                await LogoutAsync();
+                return;
+            }
+
+            using var loginForm = new LoginForm(_authUsername);
+            var loginResult = loginForm.ShowDialog(this);
+            if (loginResult != DialogResult.OK)
+            {
+                return;
+            }
+
+            await LoginAsync(loginForm.Identifier, loginForm.Password);
         }
 
         private void comboPrinters_SelectedIndexChanged(object? sender, EventArgs e)
@@ -244,6 +296,360 @@ namespace PrintForm
             // Dibiarkan kosong; hanya agar designer tidak error
         }
 
+        private void LoadPersistedAuthState()
+        {
+            var state = AppConfig.LoadAuthState();
+            if (state == null)
+            {
+                return;
+            }
+
+            _refreshToken = state.RefreshToken;
+            _authUserId = state.UserId;
+            _authUsername = state.Username;
+        }
+
+        private void PersistAuthState()
+        {
+            var refreshToken = (_refreshToken ?? string.Empty).Trim();
+            if (refreshToken.Length == 0)
+            {
+                AppConfig.ClearAuthState();
+                return;
+            }
+
+            try
+            {
+                AppConfig.SaveAuthState(new AuthState
+                {
+                    RefreshToken = refreshToken,
+                    UserId = _authUserId,
+                    Username = _authUsername
+                });
+            }
+            catch
+            {
+                // Abaikan kegagalan persist state auth agar app tetap berjalan.
+            }
+        }
+
+        private void ClearAuthState()
+        {
+            _accessToken = null;
+            _refreshToken = null;
+            _authUserId = null;
+            _authUsername = null;
+            AppConfig.ClearAuthState();
+            UpdateAuthUi();
+        }
+
+        private void UpdateAuthUi()
+        {
+            if (IsAuthenticated)
+            {
+                var displayName = string.IsNullOrWhiteSpace(_authUsername) ? _authUserId : _authUsername;
+                labelAuthUser.Text = $"Akun: {displayName ?? "terautentikasi"}";
+            }
+            else if (HasSavedAuthState)
+            {
+                var displayName = string.IsNullOrWhiteSpace(_authUsername) ? _authUserId : _authUsername;
+                labelAuthUser.Text = $"Akun tersimpan: {displayName ?? "-"}";
+            }
+            else
+            {
+                labelAuthUser.Text = "Akun: belum login";
+            }
+
+            btnLogin.Text = HasSavedAuthState ? "Logout" : "Login";
+        }
+
+        private async Task LoginAsync(string identifier, string password)
+        {
+            try
+            {
+                statusLabel.Text = "Login ke server...";
+
+                var payload = JsonSerializer.Serialize(new
+                {
+                    identifier,
+                    password
+                });
+
+                using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+                using var response = await Http.PostAsync($"{_serverBaseUrl}/api/auth/login", content);
+                var responseBody = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var apiError = TryExtractApiError(responseBody);
+                    if (response.StatusCode == HttpStatusCode.Unauthorized)
+                    {
+                        statusLabel.Text = "Login gagal. Periksa identifier/password.";
+                    }
+                    else
+                    {
+                        statusLabel.Text = apiError ?? $"Login gagal ({(int)response.StatusCode}).";
+                    }
+                    return;
+                }
+
+                if (!TryApplyAuthBundle(responseBody))
+                {
+                    statusLabel.Text = "Respons login tidak valid.";
+                    return;
+                }
+
+                statusLabel.Text = $"Login berhasil sebagai {_authUsername ?? identifier}.";
+                await RegisterClientAsync();
+            }
+            catch
+            {
+                statusLabel.Text = "Tidak bisa login ke server.";
+            }
+        }
+
+        private async Task LogoutAsync()
+        {
+            var refreshToken = _refreshToken;
+            if (!string.IsNullOrWhiteSpace(refreshToken))
+            {
+                try
+                {
+                    var payload = JsonSerializer.Serialize(new
+                    {
+                        refreshToken
+                    });
+                    using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+                    using var _ = await Http.PostAsync($"{_serverBaseUrl}/api/auth/logout", content);
+                }
+                catch
+                {
+                    // Abaikan error logout server; state lokal tetap dibersihkan.
+                }
+            }
+
+            ClearAuthState();
+            statusLabel.Text = "Logout berhasil.";
+        }
+
+        private async Task<bool> TryRefreshAccessTokenAsync(bool updateStatusOnFailure)
+        {
+            var refreshToken = _refreshToken;
+            if (string.IsNullOrWhiteSpace(refreshToken))
+            {
+                return false;
+            }
+
+            await _authRefreshLock.WaitAsync();
+            try
+            {
+                refreshToken = _refreshToken;
+                if (string.IsNullOrWhiteSpace(refreshToken))
+                {
+                    return false;
+                }
+
+                var payload = JsonSerializer.Serialize(new
+                {
+                    refreshToken
+                });
+
+                using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+                using var response = await Http.PostAsync($"{_serverBaseUrl}/api/auth/refresh", content);
+                var responseBody = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    if (response.StatusCode == HttpStatusCode.Unauthorized)
+                    {
+                        ClearAuthState();
+                        if (updateStatusOnFailure)
+                        {
+                            statusLabel.Text = "Sesi login berakhir. Silakan login ulang.";
+                        }
+                    }
+                    else if (updateStatusOnFailure)
+                    {
+                        var apiError = TryExtractApiError(responseBody);
+                        statusLabel.Text = apiError ?? $"Gagal refresh sesi ({(int)response.StatusCode}).";
+                    }
+
+                    return false;
+                }
+
+                if (!TryApplyAuthBundle(responseBody))
+                {
+                    if (updateStatusOnFailure)
+                    {
+                        statusLabel.Text = "Respons refresh tidak valid.";
+                    }
+                    return false;
+                }
+
+                return true;
+            }
+            catch
+            {
+                if (updateStatusOnFailure)
+                {
+                    statusLabel.Text = "Tidak bisa memperbarui sesi login.";
+                }
+                return false;
+            }
+            finally
+            {
+                _authRefreshLock.Release();
+            }
+        }
+
+        private bool TryApplyAuthBundle(string responseBody)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(responseBody);
+                if (!TryReadString(doc.RootElement, "accessToken", out var accessToken)
+                    || !TryReadString(doc.RootElement, "refreshToken", out var refreshToken))
+                {
+                    return false;
+                }
+
+                string? userId = null;
+                string? username = null;
+                if (doc.RootElement.TryGetProperty("user", out var userElement)
+                    && userElement.ValueKind == JsonValueKind.Object)
+                {
+                    if (TryReadString(userElement, "id", out var idValue))
+                    {
+                        userId = idValue;
+                    }
+
+                    if (TryReadString(userElement, "username", out var usernameValue))
+                    {
+                        username = usernameValue;
+                    }
+                }
+
+                _accessToken = accessToken;
+                _refreshToken = refreshToken;
+                _authUserId = userId;
+                _authUsername = username;
+                PersistAuthState();
+                UpdateAuthUi();
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task<HttpResponseMessage> SendAuthorizedAsync(HttpRequestMessage request)
+        {
+            if (string.IsNullOrWhiteSpace(_accessToken) && HasSavedAuthState)
+            {
+                await TryRefreshAccessTokenAsync(updateStatusOnFailure: false);
+            }
+
+            var retryRequest = await CloneRequestAsync(request);
+
+            ApplyAuthorizationHeader(request);
+            var response = await Http.SendAsync(request);
+
+            if (response.StatusCode != HttpStatusCode.Unauthorized || !HasSavedAuthState)
+            {
+                retryRequest.Dispose();
+                return response;
+            }
+
+            var refreshed = await TryRefreshAccessTokenAsync(updateStatusOnFailure: false);
+            if (!refreshed || string.IsNullOrWhiteSpace(_accessToken))
+            {
+                retryRequest.Dispose();
+                return response;
+            }
+
+            response.Dispose();
+            ApplyAuthorizationHeader(retryRequest);
+            return await Http.SendAsync(retryRequest);
+        }
+
+        private void ApplyAuthorizationHeader(HttpRequestMessage request)
+        {
+            request.Headers.Authorization = null;
+            if (!string.IsNullOrWhiteSpace(_accessToken))
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _accessToken);
+            }
+        }
+
+        private static async Task<HttpRequestMessage> CloneRequestAsync(HttpRequestMessage request)
+        {
+            var clone = new HttpRequestMessage(request.Method, request.RequestUri)
+            {
+                Version = request.Version,
+                VersionPolicy = request.VersionPolicy
+            };
+
+            foreach (var header in request.Headers)
+            {
+                clone.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            }
+
+            if (request.Content != null)
+            {
+                var bytes = await request.Content.ReadAsByteArrayAsync();
+                var clonedContent = new ByteArrayContent(bytes);
+                foreach (var header in request.Content.Headers)
+                {
+                    clonedContent.Headers.TryAddWithoutValidation(header.Key, header.Value);
+                }
+
+                clone.Content = clonedContent;
+            }
+
+            return clone;
+        }
+
+        private static string? TryExtractApiError(string responseBody)
+        {
+            if (string.IsNullOrWhiteSpace(responseBody))
+            {
+                return null;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(responseBody);
+                if (!TryReadString(doc.RootElement, "error", out var errorText))
+                {
+                    return null;
+                }
+
+                return errorText;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool TryReadString(JsonElement element, string propertyName, out string value)
+        {
+            if (element.TryGetProperty(propertyName, out var found)
+                && found.ValueKind == JsonValueKind.String)
+            {
+                var raw = found.GetString();
+                if (!string.IsNullOrWhiteSpace(raw))
+                {
+                    value = raw.Trim();
+                    return true;
+                }
+            }
+
+            value = string.Empty;
+            return false;
+        }
+
         private async System.Threading.Tasks.Task RegisterClientAsync()
         {
             if (_registerInProgress)
@@ -265,11 +671,23 @@ namespace PrintForm
                 };
                 var json = JsonSerializer.Serialize(payload);
                 using var content = new StringContent(json, Encoding.UTF8, "application/json");
-                using var response = await Http.PostAsync($"{_serverBaseUrl}/api/clients/register", content);
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{_serverBaseUrl}/api/clients/register")
+                {
+                    Content = content
+                };
+                using var response = await SendAuthorizedAsync(request);
                 var responseBody = await response.Content.ReadAsStringAsync();
                 if (!response.IsSuccessStatusCode)
                 {
-                    statusLabel.Text = $"Gagal terhubung ke server ({(int)response.StatusCode}).";
+                    if (response.StatusCode == HttpStatusCode.Unauthorized)
+                    {
+                        statusLabel.Text = "Client dikenali server. Silakan login agar bisa menerima job.";
+                    }
+                    else
+                    {
+                        var apiError = TryExtractApiError(responseBody);
+                        statusLabel.Text = apiError ?? $"Gagal terhubung ke server ({(int)response.StatusCode}).";
+                    }
                     return;
                 }
 
@@ -284,7 +702,17 @@ namespace PrintForm
                     }
                 }
 
-                statusLabel.Text = "Terhubung ke server.";
+                var recognized = doc.RootElement.TryGetProperty("recognized", out var recognizedElement)
+                    && recognizedElement.ValueKind == JsonValueKind.True;
+
+                if (recognized && !IsAuthenticated)
+                {
+                    statusLabel.Text = "Client dikenali. Login diperlukan untuk operasi lanjutan.";
+                }
+                else
+                {
+                    statusLabel.Text = "Terhubung ke server.";
+                }
             }
             catch
             {
@@ -333,10 +761,20 @@ namespace PrintForm
                 };
                 var json = JsonSerializer.Serialize(payload);
                 using var content = new StringContent(json, Encoding.UTF8, "application/json");
-                using var response = await Http.PostAsync($"{_serverBaseUrl}/api/clients/heartbeat", content);
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{_serverBaseUrl}/api/clients/heartbeat")
+                {
+                    Content = content
+                };
+                using var response = await SendAuthorizedAsync(request);
                 if (response.StatusCode == HttpStatusCode.NotFound)
                 {
                     await RegisterClientAsync();
+                    return;
+                }
+
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    statusLabel.Text = "Perlu login mitra untuk mengaktifkan client ini.";
                     return;
                 }
 
@@ -361,10 +799,17 @@ namespace PrintForm
 
             try
             {
-                using var response = await Http.GetAsync($"{_serverBaseUrl}/api/clients/{_clientId}/ping");
+                using var request = new HttpRequestMessage(HttpMethod.Get, $"{_serverBaseUrl}/api/clients/{_clientId}/ping");
+                using var response = await SendAuthorizedAsync(request);
                 if (response.StatusCode == HttpStatusCode.NotFound)
                 {
                     await RegisterClientAsync();
+                    return;
+                }
+
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    statusLabel.Text = "Perlu login mitra untuk sinkronisasi ping.";
                     return;
                 }
 
@@ -543,7 +988,14 @@ namespace PrintForm
 
         private async System.Threading.Tasks.Task<string?> DownloadJobFileAsync(string jobId, string originalName)
         {
-            using var response = await Http.GetAsync($"{_serverBaseUrl}/api/jobs/{Uri.EscapeDataString(jobId)}/download");
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"{_serverBaseUrl}/api/jobs/{Uri.EscapeDataString(jobId)}/download");
+            using var response = await SendAuthorizedAsync(request);
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                statusLabel.Text = "Sesi login habis. Login ulang sebelum mengambil file job.";
+                return null;
+            }
+
             if (!response.IsSuccessStatusCode)
             {
                 return null;
@@ -862,7 +1314,7 @@ namespace PrintForm
             {
                 Content = content
             };
-            using var response = await Http.SendAsync(request);
+            using var response = await SendAuthorizedAsync(request);
         }
 
         private async System.Threading.Tasks.Task EnsureRegisteredAsync()
@@ -950,6 +1402,7 @@ namespace PrintForm
                     _realtimeSocket = socket;
 
                     await socket.ConnectAsync(realtimeUri, cancellationToken);
+                    await SendRealtimeIdentifyAsync(socket, cancellationToken);
                     await SendRealtimeSubscribeAsync(socket, cancellationToken);
                     await ReceiveRealtimeMessagesAsync(socket, cancellationToken);
                 }
@@ -1008,11 +1461,15 @@ namespace PrintForm
                 ? "wss"
                 : "ws";
 
+            var clientId = _clientId;
+
             var builder = new UriBuilder(baseUri)
             {
                 Scheme = scheme,
                 Path = "/ws",
-                Query = string.Empty,
+                Query = string.IsNullOrWhiteSpace(clientId)
+                    ? "role=client"
+                    : $"clientId={Uri.EscapeDataString(clientId)}&role=client",
                 Fragment = string.Empty
             };
 
@@ -1022,6 +1479,24 @@ namespace PrintForm
             }
 
             return builder.Uri;
+        }
+
+        private async Task SendRealtimeIdentifyAsync(ClientWebSocket socket, CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(_clientId))
+            {
+                return;
+            }
+
+            var identifyPayload = JsonSerializer.Serialize(new
+            {
+                action = "identify",
+                clientId = _clientId,
+                role = "client"
+            });
+
+            var bytes = Encoding.UTF8.GetBytes(identifyPayload);
+            await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, cancellationToken);
         }
 
         private static async Task SendRealtimeSubscribeAsync(ClientWebSocket socket, CancellationToken cancellationToken)

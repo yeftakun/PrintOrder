@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Text.Json;
 
 namespace PrintForm
 {
@@ -10,6 +11,7 @@ namespace PrintForm
         private const string DefaultServerBaseUrl = "http://127.0.0.1:3000";
         private const string ConfigFileName = "printform.ini";
         private const string ClientIdFileName = "printform.client-id";
+        private const string AuthStateFileName = "printform.auth.json";
 
         public static string StorageDirectoryPath => AppContext.BaseDirectory;
 
@@ -79,6 +81,11 @@ namespace PrintForm
             return Path.Combine(StorageDirectoryPath, ClientIdFileName);
         }
 
+        public static string GetAuthStateFilePath()
+        {
+            return Path.Combine(StorageDirectoryPath, AuthStateFileName);
+        }
+
         public static string LoadServerBaseUrl()
         {
             var configPath = GetConfigFilePath();
@@ -144,6 +151,86 @@ namespace PrintForm
             {
                 // Fallback: tetap punya ID walau gagal persist.
                 return Guid.NewGuid().ToString("D");
+            }
+        }
+
+        public static AuthState? LoadAuthState()
+        {
+            var authStatePath = GetAuthStateFilePath();
+
+            try
+            {
+                if (!File.Exists(authStatePath))
+                {
+                    return null;
+                }
+
+                var raw = File.ReadAllText(authStatePath);
+                if (string.IsNullOrWhiteSpace(raw))
+                {
+                    return null;
+                }
+
+                var state = JsonSerializer.Deserialize<AuthState>(raw);
+                if (state == null || string.IsNullOrWhiteSpace(state.RefreshToken))
+                {
+                    return null;
+                }
+
+                return new AuthState
+                {
+                    RefreshToken = state.RefreshToken.Trim(),
+                    UserId = string.IsNullOrWhiteSpace(state.UserId) ? null : state.UserId.Trim(),
+                    Username = string.IsNullOrWhiteSpace(state.Username) ? null : state.Username.Trim()
+                };
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public static void SaveAuthState(AuthState state)
+        {
+            if (state == null)
+            {
+                throw new ArgumentNullException(nameof(state));
+            }
+
+            var refreshToken = (state.RefreshToken ?? string.Empty).Trim();
+            if (refreshToken.Length == 0)
+            {
+                throw new ArgumentException("Refresh token wajib diisi.", nameof(state));
+            }
+
+            var normalized = new AuthState
+            {
+                RefreshToken = refreshToken,
+                UserId = string.IsNullOrWhiteSpace(state.UserId) ? null : state.UserId.Trim(),
+                Username = string.IsNullOrWhiteSpace(state.Username) ? null : state.Username.Trim()
+            };
+
+            var raw = JsonSerializer.Serialize(normalized, new JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+
+            File.WriteAllText(GetAuthStateFilePath(), raw + Environment.NewLine, new UTF8Encoding(false));
+        }
+
+        public static void ClearAuthState()
+        {
+            var authStatePath = GetAuthStateFilePath();
+            try
+            {
+                if (File.Exists(authStatePath))
+                {
+                    File.Delete(authStatePath);
+                }
+            }
+            catch
+            {
+                // Abaikan kegagalan hapus state auth.
             }
         }
 

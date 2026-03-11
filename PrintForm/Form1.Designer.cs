@@ -33,8 +33,10 @@
             btnConfig = new Button();
             btnJobList = new Button();
             btnSettings = new Button();
+            btnLogin = new Button();
             labelServerUrl = new Label();
             labelClientId = new Label();
+            labelAuthUser = new Label();
             statusStrip1 = new StatusStrip();
             statusLabel = new ToolStripStatusLabel();
             printDocument1 = new System.Drawing.Printing.PrintDocument();
@@ -90,6 +92,16 @@
             btnSettings.UseVisualStyleBackColor = true;
             btnSettings.Click += btnSettings_Click;
             // 
+            // btnLogin
+            // 
+            btnLogin.Location = new Point(270, 100);
+            btnLogin.Name = "btnLogin";
+            btnLogin.Size = new Size(140, 29);
+            btnLogin.TabIndex = 5;
+            btnLogin.Text = "Login";
+            btnLogin.UseVisualStyleBackColor = true;
+            btnLogin.Click += btnLogin_Click;
+            // 
             // labelServerUrl
             // 
             labelServerUrl.AutoEllipsis = true;
@@ -108,11 +120,20 @@
             labelClientId.TabIndex = 7;
             labelClientId.Text = "Client ID: -";
             // 
+            // labelAuthUser
+            // 
+            labelAuthUser.AutoEllipsis = true;
+            labelAuthUser.Location = new Point(20, 182);
+            labelAuthUser.Name = "labelAuthUser";
+            labelAuthUser.Size = new Size(530, 20);
+            labelAuthUser.TabIndex = 8;
+            labelAuthUser.Text = "Akun: belum login";
+            // 
             // statusStrip1
             // 
             statusStrip1.ImageScalingSize = new Size(20, 20);
             statusStrip1.Items.AddRange(new ToolStripItem[] { statusLabel });
-            statusStrip1.Location = new Point(0, 204);
+            statusStrip1.Location = new Point(0, 226);
             statusStrip1.Name = "statusStrip1";
             statusStrip1.Size = new Size(560, 26);
             statusStrip1.TabIndex = 5;
@@ -134,10 +155,12 @@
             // 
             AutoScaleDimensions = new SizeF(8F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(560, 230);
+            ClientSize = new Size(560, 252);
+            Controls.Add(labelAuthUser);
             Controls.Add(labelClientId);
             Controls.Add(labelServerUrl);
             Controls.Add(statusStrip1);
+            Controls.Add(btnLogin);
             Controls.Add(btnSettings);
             Controls.Add(btnJobList);
             Controls.Add(btnConfig);
@@ -159,8 +182,10 @@
         private Button btnConfig;
         private Button btnJobList;
         private Button btnSettings;
+        private Button btnLogin;
         private Label labelServerUrl;
         private Label labelClientId;
+        private Label labelAuthUser;
         private StatusStrip statusStrip1;
         private ToolStripStatusLabel statusLabel;
         private System.Drawing.Printing.PrintDocument printDocument1;

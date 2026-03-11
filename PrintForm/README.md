@@ -37,6 +37,7 @@ base_url=http://127.0.0.1:3000
 - Registers to the server and sends heartbeat updates.
 - Polls ping messages from the server.
 - Connects to server realtime WebSocket channel (`ws://.../ws`) and subscribes to `jobs`, `clients`, `sessions` events.
+- On websocket connect, client immediately sends presence identity (`action=identify`, `clientId`, `role=client`) so server can mark online/offline faster.
 - Realtime job events trigger immediate Job List refresh; periodic polling remains as fallback.
 - Uses a persistent client GUID stored in `printform.client-id` next to the executable.
 - Menyediakan window `Pengaturan` untuk edit nilai `[server] -> base_url` pada `printform.ini`.

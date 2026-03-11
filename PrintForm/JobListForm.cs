@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -10,9 +11,9 @@ namespace PrintForm
 {
     internal sealed class JobListForm : Form
     {
-        private readonly HttpClient _http;
         private readonly string _serverBaseUrl;
         private readonly Func<string?> _getClientId;
+        private readonly Func<HttpRequestMessage, Task<HttpResponseMessage>> _sendAuthorizedAsync;
         private readonly Func<PrintJob, Task> _printJobAsync;
         private readonly Func<PrintJob, Task> _rejectJobAsync;
         private readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
@@ -30,11 +31,16 @@ namespace PrintForm
         private bool _isLoading;
         private bool _pendingRefresh;
 
-        public JobListForm(HttpClient http, string serverBaseUrl, Func<string?> getClientId, Func<PrintJob, Task> printJobAsync, Func<PrintJob, Task> rejectJobAsync)
+        public JobListForm(
+            string serverBaseUrl,
+            Func<string?> getClientId,
+            Func<HttpRequestMessage, Task<HttpResponseMessage>> sendAuthorizedAsync,
+            Func<PrintJob, Task> printJobAsync,
+            Func<PrintJob, Task> rejectJobAsync)
         {
-            _http = http;
             _serverBaseUrl = serverBaseUrl.TrimEnd('/');
             _getClientId = getClientId;
+            _sendAuthorizedAsync = sendAuthorizedAsync;
             _printJobAsync = printJobAsync;
             _rejectJobAsync = rejectJobAsync;
 
@@ -230,7 +236,14 @@ namespace PrintForm
         {
             try
             {
-                using var response = await _http.GetAsync($"{_serverBaseUrl}/api/jobs/{Uri.EscapeDataString(jobId)}");
+                using var request = new HttpRequestMessage(HttpMethod.Get, $"{_serverBaseUrl}/api/jobs/{Uri.EscapeDataString(jobId)}");
+                using var response = await _sendAuthorizedAsync(request);
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    _statusLabel.Text = "Sesi login habis. Silakan login lagi.";
+                    return null;
+                }
+
                 if (!response.IsSuccessStatusCode)
                 {
                     return null;
@@ -266,7 +279,15 @@ namespace PrintForm
 
             try
             {
-                using var response = await _http.GetAsync($"{_serverBaseUrl}/api/jobs?clientId={Uri.EscapeDataString(clientId)}");
+                using var request = new HttpRequestMessage(HttpMethod.Get, $"{_serverBaseUrl}/api/jobs?clientId={Uri.EscapeDataString(clientId)}");
+                using var response = await _sendAuthorizedAsync(request);
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    _statusLabel.Text = "Perlu login mitra untuk melihat job.";
+                    _grid.Rows.Clear();
+                    return;
+                }
+
                 if (!response.IsSuccessStatusCode)
                 {
                     _statusLabel.Text = "Gagal memuat job.";
