@@ -113,7 +113,7 @@ namespace PrintForm
                 return;
             }
 
-            if (!Program.TrySaveServerBaseUrlWithElevation(inputValue, out var errorMessage))
+            if (!Program.TrySaveServerBaseUrl(inputValue, out var errorMessage))
             {
                 MessageBox.Show(
                     this,

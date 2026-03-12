@@ -49,7 +49,7 @@ namespace PrintForm
             Application.Run(new Form1());
         }
 
-        internal static bool TrySaveServerBaseUrlWithElevation(string baseUrl, out string errorMessage)
+        internal static bool TrySaveServerBaseUrl(string baseUrl, out string errorMessage)
         {
             errorMessage = string.Empty;
 
@@ -60,53 +60,19 @@ namespace PrintForm
                 return false;
             }
 
-            if (IsRunningAsAdministrator())
-            {
-                try
-                {
-                    AppConfig.SaveServerBaseUrl(normalized);
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    errorMessage = $"Gagal menyimpan file printform.ini: {ex.Message}";
-                    return false;
-                }
-            }
-
             try
             {
-                var startInfo = CreateSelfStartInfo(true, SaveServerBaseUrlArgument, normalized);
-                if (startInfo == null)
-                {
-                    errorMessage = "Lokasi executable tidak ditemukan.";
-                    return false;
-                }
-
-                using var process = Process.Start(startInfo);
-                if (process == null)
-                {
-                    errorMessage = "Gagal menjalankan proses administrator.";
-                    return false;
-                }
-
-                process.WaitForExit();
-                if (process.ExitCode != 0)
-                {
-                    errorMessage = "Proses administrator gagal menyimpan konfigurasi.";
-                    return false;
-                }
-
+                AppConfig.SaveServerBaseUrl(normalized);
                 return true;
             }
-            catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
+            catch (UnauthorizedAccessException)
             {
-                errorMessage = "Izin administrator dibatalkan oleh pengguna.";
+                errorMessage = $"Tidak punya izin menulis printform.ini di {AppConfig.GetConfigFilePath()}.";
                 return false;
             }
             catch (Exception ex)
             {
-                errorMessage = $"Gagal menjalankan proses administrator: {ex.Message}";
+                errorMessage = $"Gagal menyimpan file printform.ini: {ex.Message}";
                 return false;
             }
         }
