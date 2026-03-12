@@ -6,6 +6,7 @@
 - Pairing dilakukan sekali dengan `identifier` + `password` akun mitra lewat endpoint `POST /api/clients/:id/pair`.
 - Setelah itu app tidak perlu minta password lagi di setiap startup selama refresh token masih valid.
 - Lepas pairing akan memanggil `POST /api/clients/:id/unbind`.
+- Lepas pairing dari desktop mewajibkan verifikasi PIN akun (atur PIN di `/mitra/account/`).
 
 ## Lokasi file lokal
 

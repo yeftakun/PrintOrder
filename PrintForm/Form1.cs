@@ -430,6 +430,19 @@ namespace PrintForm
                 return;
             }
 
+            var pin = PromptPinForUnpair();
+            if (pin == null)
+            {
+                statusLabel.Text = "Lepas pairing dibatalkan.";
+                return;
+            }
+
+            var pinVerified = await VerifyAccountPinAsync(pin);
+            if (!pinVerified)
+            {
+                return;
+            }
+
             try
             {
                 using var content = new StringContent("{}", Encoding.UTF8, "application/json");
@@ -468,6 +481,127 @@ namespace PrintForm
             {
                 statusLabel.Text = "Tidak bisa menghubungi server untuk melepas pairing.";
             }
+        }
+
+        private async Task<bool> VerifyAccountPinAsync(string pin)
+        {
+            if (string.IsNullOrWhiteSpace(pin))
+            {
+                statusLabel.Text = "PIN wajib diisi.";
+                return false;
+            }
+
+            try
+            {
+                var payload = JsonSerializer.Serialize(new { pin });
+                using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{_serverBaseUrl}/api/auth/verify-pin")
+                {
+                    Content = content
+                };
+
+                using var response = await SendAuthorizedAsync(request);
+                if (response.IsSuccessStatusCode)
+                {
+                    return true;
+                }
+
+                var responseBody = await response.Content.ReadAsStringAsync();
+                var apiError = TryExtractApiError(responseBody);
+                statusLabel.Text = apiError ?? $"Verifikasi PIN gagal ({(int)response.StatusCode}).";
+                return false;
+            }
+            catch
+            {
+                statusLabel.Text = "Tidak bisa memverifikasi PIN akun.";
+                return false;
+            }
+        }
+
+        private string? PromptPinForUnpair()
+        {
+            using var dialog = new Form
+            {
+                Text = "Verifikasi PIN",
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                StartPosition = FormStartPosition.CenterParent,
+                MaximizeBox = false,
+                MinimizeBox = false,
+                ShowInTaskbar = false,
+                ClientSize = new Size(360, 170)
+            };
+
+            var infoLabel = new Label
+            {
+                AutoSize = true,
+                Location = new Point(18, 16),
+                Text = "Masukkan PIN akun untuk Lepas Pairing."
+            };
+
+            var pinLabel = new Label
+            {
+                AutoSize = true,
+                Location = new Point(18, 52),
+                Text = "PIN"
+            };
+
+            var pinTextBox = new TextBox
+            {
+                Location = new Point(80, 48),
+                Size = new Size(250, 27),
+                PasswordChar = '*',
+                MaxLength = 8
+            };
+
+            var okButton = new Button
+            {
+                Text = "Verifikasi",
+                Location = new Point(160, 106),
+                Size = new Size(82, 32),
+                DialogResult = DialogResult.None
+            };
+
+            var cancelButton = new Button
+            {
+                Text = "Batal",
+                Location = new Point(248, 106),
+                Size = new Size(82, 32),
+                DialogResult = DialogResult.Cancel
+            };
+
+            okButton.Click += (_, _) =>
+            {
+                var pin = (pinTextBox.Text ?? string.Empty).Trim();
+                if (pin.Length < 4 || pin.Length > 8 || !pin.All(char.IsDigit))
+                {
+                    MessageBox.Show(
+                        dialog,
+                        "PIN harus 4-8 digit angka.",
+                        "Validasi PIN",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    pinTextBox.Focus();
+                    return;
+                }
+
+                dialog.DialogResult = DialogResult.OK;
+                dialog.Close();
+            };
+
+            dialog.AcceptButton = okButton;
+            dialog.CancelButton = cancelButton;
+
+            dialog.Controls.Add(infoLabel);
+            dialog.Controls.Add(pinLabel);
+            dialog.Controls.Add(pinTextBox);
+            dialog.Controls.Add(okButton);
+            dialog.Controls.Add(cancelButton);
+
+            pinTextBox.Focus();
+
+            return dialog.ShowDialog(this) == DialogResult.OK
+                ? pinTextBox.Text.Trim()
+                : null;
         }
 
         private async Task<bool> TryRefreshAccessTokenAsync(bool updateStatusOnFailure)
