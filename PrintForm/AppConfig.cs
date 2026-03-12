@@ -15,9 +15,11 @@ namespace PrintForm
         private const string AuthStateFileName = "printform.auth.json";
 
         private static readonly string LegacyStorageDirectoryPath = AppContext.BaseDirectory;
-        private static readonly string CurrentStorageDirectoryPath = ResolveStorageDirectoryPath();
+        private static readonly string CurrentUserStorageDirectoryPath = ResolveUserStorageDirectoryPath();
+        private static readonly string CurrentMachineStorageDirectoryPath = ResolveMachineStorageDirectoryPath();
 
-        public static string StorageDirectoryPath => CurrentStorageDirectoryPath;
+        public static string StorageDirectoryPath => CurrentUserStorageDirectoryPath;
+        public static string ClientIdStorageDirectoryPath => CurrentMachineStorageDirectoryPath;
 
         public static string[] GetMissingRequiredFiles()
         {
@@ -40,7 +42,8 @@ namespace PrintForm
 
         public static string[] CreateMissingRequiredFiles()
         {
-            Directory.CreateDirectory(StorageDirectoryPath);
+            Directory.CreateDirectory(CurrentUserStorageDirectoryPath);
+            Directory.CreateDirectory(CurrentMachineStorageDirectoryPath);
 
             var created = new List<string>();
             var configPath = GetConfigFilePath();
@@ -81,17 +84,37 @@ namespace PrintForm
 
         public static string GetConfigFilePath()
         {
-            return Path.Combine(StorageDirectoryPath, ConfigFileName);
+            return Path.Combine(CurrentUserStorageDirectoryPath, ConfigFileName);
         }
 
         public static string GetClientIdFilePath()
         {
-            return Path.Combine(StorageDirectoryPath, ClientIdFileName);
+            return Path.Combine(CurrentMachineStorageDirectoryPath, ClientIdFileName);
         }
 
         public static string GetAuthStateFilePath()
         {
-            return Path.Combine(StorageDirectoryPath, AuthStateFileName);
+            return Path.Combine(CurrentUserStorageDirectoryPath, AuthStateFileName);
+        }
+
+        public static string? GetRequiredFilePath(string fileName)
+        {
+            if (string.Equals(fileName, ConfigFileName, StringComparison.OrdinalIgnoreCase))
+            {
+                return GetConfigFilePath();
+            }
+
+            if (string.Equals(fileName, ClientIdFileName, StringComparison.OrdinalIgnoreCase))
+            {
+                return GetClientIdFilePath();
+            }
+
+            if (string.Equals(fileName, AuthStateFileName, StringComparison.OrdinalIgnoreCase))
+            {
+                return GetAuthStateFilePath();
+            }
+
+            return null;
         }
 
         public static string LoadServerBaseUrl()
@@ -226,7 +249,7 @@ namespace PrintForm
                 WriteIndented = true
             });
 
-            Directory.CreateDirectory(StorageDirectoryPath);
+            Directory.CreateDirectory(CurrentUserStorageDirectoryPath);
             File.WriteAllText(GetAuthStateFilePath(), raw + Environment.NewLine, new UTF8Encoding(false));
         }
 
@@ -296,7 +319,7 @@ namespace PrintForm
             return false;
         }
 
-        private static string ResolveStorageDirectoryPath()
+        private static string ResolveUserStorageDirectoryPath()
         {
             try
             {
@@ -316,43 +339,94 @@ namespace PrintForm
             return LegacyStorageDirectoryPath;
         }
 
-        private static void TryMigrateLegacyFiles()
-        {
-            if (string.Equals(
-                Path.GetFullPath(CurrentStorageDirectoryPath).TrimEnd(Path.DirectorySeparatorChar),
-                Path.GetFullPath(LegacyStorageDirectoryPath).TrimEnd(Path.DirectorySeparatorChar),
-                StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
-
-            TryMigrateLegacyFile(ConfigFileName);
-            TryMigrateLegacyFile(ClientIdFileName);
-            TryMigrateLegacyFile(AuthStateFileName);
-        }
-
-        private static void TryMigrateLegacyFile(string fileName)
+        private static string ResolveMachineStorageDirectoryPath()
         {
             try
             {
-                var destinationPath = Path.Combine(CurrentStorageDirectoryPath, fileName);
+                var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+                if (!string.IsNullOrWhiteSpace(programData))
+                {
+                    var candidate = Path.Combine(programData, StorageFolderName);
+                    Directory.CreateDirectory(candidate);
+                    return candidate;
+                }
+            }
+            catch
+            {
+                // Fallback ke LocalAppData jika ProgramData tidak tersedia.
+            }
+
+            return CurrentUserStorageDirectoryPath;
+        }
+
+        private static void TryMigrateLegacyFiles()
+        {
+            TryMigrateFile(
+                GetConfigFilePath(),
+                Path.Combine(LegacyStorageDirectoryPath, ConfigFileName));
+
+            TryMigrateFile(
+                GetAuthStateFilePath(),
+                Path.Combine(LegacyStorageDirectoryPath, AuthStateFileName));
+
+            // Prioritas migrasi client-id: lokasi user lama lalu lokasi executable lama.
+            TryMigrateFile(
+                GetClientIdFilePath(),
+                Path.Combine(CurrentUserStorageDirectoryPath, ClientIdFileName),
+                Path.Combine(LegacyStorageDirectoryPath, ClientIdFileName));
+        }
+
+        private static void TryMigrateFile(string destinationPath, params string[] sourcePaths)
+        {
+            try
+            {
                 if (File.Exists(destinationPath))
                 {
                     return;
                 }
 
-                var sourcePath = Path.Combine(LegacyStorageDirectoryPath, fileName);
-                if (!File.Exists(sourcePath))
+                foreach (var sourcePath in sourcePaths)
                 {
+                    if (string.IsNullOrWhiteSpace(sourcePath) || AreSamePath(sourcePath, destinationPath))
+                    {
+                        continue;
+                    }
+
+                    if (!File.Exists(sourcePath))
+                    {
+                        continue;
+                    }
+
+                    var destinationDir = Path.GetDirectoryName(destinationPath);
+                    if (!string.IsNullOrWhiteSpace(destinationDir))
+                    {
+                        Directory.CreateDirectory(destinationDir);
+                    }
+
+                    File.Copy(sourcePath, destinationPath, overwrite: false);
                     return;
                 }
-
-                Directory.CreateDirectory(CurrentStorageDirectoryPath);
-                File.Copy(sourcePath, destinationPath, overwrite: false);
             }
             catch
             {
                 // Abaikan migrasi gagal; aplikasi tetap bisa membuat file baru.
+            }
+        }
+
+        private static bool AreSamePath(string leftPath, string rightPath)
+        {
+            try
+            {
+                var leftFullPath = Path.GetFullPath(leftPath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var rightFullPath = Path.GetFullPath(rightPath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+                return string.Equals(leftFullPath, rightFullPath, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return string.Equals(leftPath, rightPath, StringComparison.OrdinalIgnoreCase);
             }
         }
     }

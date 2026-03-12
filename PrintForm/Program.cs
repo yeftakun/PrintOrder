@@ -166,10 +166,17 @@ namespace PrintForm
 
             if (!createWithoutPrompt)
             {
+                var missingFileLines = missingFiles.Select(file =>
+                {
+                    var filePath = AppConfig.GetRequiredFilePath(file);
+                    return string.IsNullOrWhiteSpace(filePath)
+                        ? $"- {file}"
+                        : $"- {file} ({filePath})";
+                });
+
                 var confirmationMessage =
                     "Aplikasi membutuhkan file berikut sebelum dijalankan:" + Environment.NewLine
-                    + string.Join(Environment.NewLine, missingFiles.Select(file => $"- {file}")) + Environment.NewLine + Environment.NewLine
-                    + $"Lokasi: {AppConfig.StorageDirectoryPath}" + Environment.NewLine + Environment.NewLine
+                    + string.Join(Environment.NewLine, missingFileLines) + Environment.NewLine + Environment.NewLine
                     + "Pilih Yes untuk membuat file tersebut.";
 
                 var confirmation = MessageBox.Show(

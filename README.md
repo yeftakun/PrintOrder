@@ -10,11 +10,14 @@
 
 ## Lokasi file lokal
 
-- Konfigurasi dan state auth sekarang disimpan di:
+- Konfigurasi dan state auth disimpan per-user:
   - `%LocalAppData%\\PrintForm\\printform.ini`
-  - `%LocalAppData%\\PrintForm\\printform.client-id`
   - `%LocalAppData%\\PrintForm\\printform.auth.json`
-- Jika file lama masih berada di folder executable, app akan mencoba migrasi otomatis saat startup.
+- ID client disimpan machine-level (shared antar user Windows):
+  - `%ProgramData%\\PrintForm\\printform.client-id`
+- Migrasi otomatis saat startup:
+  - `printform.ini` dan `printform.auth.json`: dari folder executable lama ke `%LocalAppData%`.
+  - `printform.client-id`: prioritas dari `%LocalAppData%` lama, fallback dari folder executable lama, lalu disalin ke `%ProgramData%`.
 
 build & run
 
