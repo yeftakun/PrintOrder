@@ -445,6 +445,17 @@ namespace PrintForm
                 {
                     var responseBody = await response.Content.ReadAsStringAsync();
                     var apiError = TryExtractApiError(responseBody);
+
+                    if (response.StatusCode == HttpStatusCode.Conflict
+                        && !string.IsNullOrWhiteSpace(apiError)
+                        && apiError.Contains("already unbound", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ClearAuthState();
+                        await SendHeartbeatAsync();
+                        statusLabel.Text = "Pairing lokal disinkronkan. Client memang sudah unbound di server.";
+                        return;
+                    }
+
                     statusLabel.Text = apiError ?? $"Gagal melepas pairing ({(int)response.StatusCode}).";
                     return;
                 }
@@ -677,6 +688,32 @@ namespace PrintForm
             return false;
         }
 
+        private static bool TryReadBooleanFromJson(string json, string propertyName, out bool value)
+        {
+            value = false;
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                return false;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.TryGetProperty(propertyName, out var found)
+                    || (found.ValueKind != JsonValueKind.True && found.ValueKind != JsonValueKind.False))
+                {
+                    return false;
+                }
+
+                value = found.GetBoolean();
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private async System.Threading.Tasks.Task RegisterClientAsync()
         {
             if (_registerInProgress)
@@ -731,6 +768,13 @@ namespace PrintForm
 
                 var recognized = doc.RootElement.TryGetProperty("recognized", out var recognizedElement)
                     && recognizedElement.ValueKind == JsonValueKind.True;
+
+                if (!recognized && HasSavedAuthState)
+                {
+                    ClearAuthState();
+                    statusLabel.Text = "Pairing akun telah dilepas dari server. Client kembali mode belum dipairing.";
+                    return;
+                }
 
                 if (recognized && !IsAuthenticated)
                 {
@@ -805,10 +849,21 @@ namespace PrintForm
                     return;
                 }
 
-                if (!response.IsSuccessStatusCode)
+                var responseBody = await response.Content.ReadAsStringAsync();
+
+                if (response.IsSuccessStatusCode)
                 {
-                    statusLabel.Text = "Koneksi server terputus.";
+                    if (TryReadBooleanFromJson(responseBody, "recognized", out var recognized)
+                        && !recognized
+                        && HasSavedAuthState)
+                    {
+                        ClearAuthState();
+                        statusLabel.Text = "Pairing akun telah dilepas dari browser/mitra. Pair ulang jika diperlukan.";
+                    }
+                    return;
                 }
+
+                statusLabel.Text = "Koneksi server terputus.";
             }
             catch
             {
