@@ -9,14 +9,20 @@ namespace PrintForm
     internal static class AppConfig
     {
         private const string DefaultServerBaseUrl = "http://127.0.0.1:3000";
+        private const string StorageFolderName = "PrintForm";
         private const string ConfigFileName = "printform.ini";
         private const string ClientIdFileName = "printform.client-id";
         private const string AuthStateFileName = "printform.auth.json";
 
-        public static string StorageDirectoryPath => AppContext.BaseDirectory;
+        private static readonly string LegacyStorageDirectoryPath = AppContext.BaseDirectory;
+        private static readonly string CurrentStorageDirectoryPath = ResolveStorageDirectoryPath();
+
+        public static string StorageDirectoryPath => CurrentStorageDirectoryPath;
 
         public static string[] GetMissingRequiredFiles()
         {
+            TryMigrateLegacyFiles();
+
             var missing = new List<string>();
 
             if (!File.Exists(GetConfigFilePath()))
@@ -34,6 +40,8 @@ namespace PrintForm
 
         public static string[] CreateMissingRequiredFiles()
         {
+            Directory.CreateDirectory(StorageDirectoryPath);
+
             var created = new List<string>();
             var configPath = GetConfigFilePath();
             var clientIdPath = GetClientIdFilePath();
@@ -88,6 +96,7 @@ namespace PrintForm
 
         public static string LoadServerBaseUrl()
         {
+            TryMigrateLegacyFiles();
             var configPath = GetConfigFilePath();
 
             try
@@ -131,6 +140,7 @@ namespace PrintForm
 
         public static string LoadOrCreateClientId()
         {
+            TryMigrateLegacyFiles();
             var clientIdPath = GetClientIdFilePath();
 
             try
@@ -156,6 +166,7 @@ namespace PrintForm
 
         public static AuthState? LoadAuthState()
         {
+            TryMigrateLegacyFiles();
             var authStatePath = GetAuthStateFilePath();
 
             try
@@ -215,6 +226,7 @@ namespace PrintForm
                 WriteIndented = true
             });
 
+            Directory.CreateDirectory(StorageDirectoryPath);
             File.WriteAllText(GetAuthStateFilePath(), raw + Environment.NewLine, new UTF8Encoding(false));
         }
 
@@ -282,6 +294,66 @@ namespace PrintForm
 
             normalized = string.Empty;
             return false;
+        }
+
+        private static string ResolveStorageDirectoryPath()
+        {
+            try
+            {
+                var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                if (!string.IsNullOrWhiteSpace(localAppData))
+                {
+                    var candidate = Path.Combine(localAppData, StorageFolderName);
+                    Directory.CreateDirectory(candidate);
+                    return candidate;
+                }
+            }
+            catch
+            {
+                // Fallback ke base directory jika LocalAppData tidak tersedia.
+            }
+
+            return LegacyStorageDirectoryPath;
+        }
+
+        private static void TryMigrateLegacyFiles()
+        {
+            if (string.Equals(
+                Path.GetFullPath(CurrentStorageDirectoryPath).TrimEnd(Path.DirectorySeparatorChar),
+                Path.GetFullPath(LegacyStorageDirectoryPath).TrimEnd(Path.DirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            TryMigrateLegacyFile(ConfigFileName);
+            TryMigrateLegacyFile(ClientIdFileName);
+            TryMigrateLegacyFile(AuthStateFileName);
+        }
+
+        private static void TryMigrateLegacyFile(string fileName)
+        {
+            try
+            {
+                var destinationPath = Path.Combine(CurrentStorageDirectoryPath, fileName);
+                if (File.Exists(destinationPath))
+                {
+                    return;
+                }
+
+                var sourcePath = Path.Combine(LegacyStorageDirectoryPath, fileName);
+                if (!File.Exists(sourcePath))
+                {
+                    return;
+                }
+
+                Directory.CreateDirectory(CurrentStorageDirectoryPath);
+                File.Copy(sourcePath, destinationPath, overwrite: false);
+            }
+            catch
+            {
+                // Abaikan migrasi gagal; aplikasi tetap bisa membuat file baru.
+            }
         }
     }
 }

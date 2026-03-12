@@ -22,7 +22,7 @@ namespace PrintForm
 
         private void InitializeLayout(string? lastIdentifier)
         {
-            Text = "Login Mitra";
+            Text = "Pair Akun Mitra";
             FormBorderStyle = FormBorderStyle.FixedDialog;
             StartPosition = FormStartPosition.CenterParent;
             MaximizeBox = false;
@@ -34,7 +34,7 @@ namespace PrintForm
             {
                 AutoSize = true,
                 Location = new Point(20, 16),
-                Text = "Masuk dengan username atau email akun mitra."
+                Text = "Verifikasi akun untuk pairing client ke akun mitra."
             };
 
             var identifierLabel = new Label
@@ -69,7 +69,7 @@ namespace PrintForm
 
             _loginButton.Location = new Point(250, 172);
             _loginButton.Size = new Size(90, 32);
-            _loginButton.Text = "Login";
+            _loginButton.Text = "Pair";
             _loginButton.UseVisualStyleBackColor = true;
             _loginButton.Click += LoginButton_Click;
 

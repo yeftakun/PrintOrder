@@ -170,7 +170,7 @@ namespace PrintForm
                     "Aplikasi membutuhkan file berikut sebelum dijalankan:" + Environment.NewLine
                     + string.Join(Environment.NewLine, missingFiles.Select(file => $"- {file}")) + Environment.NewLine + Environment.NewLine
                     + $"Lokasi: {AppConfig.StorageDirectoryPath}" + Environment.NewLine + Environment.NewLine
-                    + "Pilih Yes untuk membuat file tersebut. Aplikasi akan meminta izin Run as administrator.";
+                    + "Pilih Yes untuk membuat file tersebut.";
 
                 var confirmation = MessageBox.Show(
                     confirmationMessage,
@@ -180,21 +180,6 @@ namespace PrintForm
 
                 if (confirmation != DialogResult.Yes)
                 {
-                    return false;
-                }
-
-                if (!IsRunningAsAdministrator())
-                {
-                    var elevated = RelaunchAsAdministrator();
-                    if (!elevated)
-                    {
-                        MessageBox.Show(
-                            "Aplikasi tidak bisa dijalankan sebagai administrator. Pembuatan file dibatalkan.",
-                            "Peringatan",
-                            MessageBoxButtons.OK,
-                            MessageBoxIcon.Warning);
-                    }
-
                     return false;
                 }
             }
@@ -226,6 +211,24 @@ namespace PrintForm
                 }
 
                 return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                if (!IsRunningAsAdministrator())
+                {
+                    var elevated = RelaunchAsAdministrator();
+                    if (elevated)
+                    {
+                        return false;
+                    }
+                }
+
+                MessageBox.Show(
+                    "Tidak punya izin untuk membuat file konfigurasi. Jalankan sebagai administrator atau ubah lokasi folder aplikasi.",
+                    "Gagal Membuat File",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                return false;
             }
             catch (Exception ex)
             {

@@ -90,7 +90,7 @@ namespace PrintForm
 
             if (HasSavedAuthState)
             {
-                statusLabel.Text = "Memulihkan sesi login...";
+                statusLabel.Text = "Memulihkan sesi pairing...";
                 await TryRefreshAccessTokenAsync(updateStatusOnFailure: false);
             }
 
@@ -166,8 +166,8 @@ namespace PrintForm
             {
                 var confirm = MessageBox.Show(
                     this,
-                    "Keluar dari akun ini?",
-                    "Logout",
+                    "Lepas pairing client ini dari akun mitra?",
+                    "Lepas Pairing",
                     MessageBoxButtons.YesNo,
                     MessageBoxIcon.Question);
 
@@ -176,7 +176,7 @@ namespace PrintForm
                     return;
                 }
 
-                await LogoutAsync();
+                await UnpairClientAsync();
                 return;
             }
 
@@ -348,26 +348,33 @@ namespace PrintForm
             if (IsAuthenticated)
             {
                 var displayName = string.IsNullOrWhiteSpace(_authUsername) ? _authUserId : _authUsername;
-                labelAuthUser.Text = $"Akun: {displayName ?? "terautentikasi"}";
+                labelAuthUser.Text = $"Pairing akun aktif: {displayName ?? "terautentikasi"}";
             }
             else if (HasSavedAuthState)
             {
                 var displayName = string.IsNullOrWhiteSpace(_authUsername) ? _authUserId : _authUsername;
-                labelAuthUser.Text = $"Akun tersimpan: {displayName ?? "-"}";
+                labelAuthUser.Text = $"Pairing akun tersimpan: {displayName ?? "-"}";
             }
             else
             {
-                labelAuthUser.Text = "Akun: belum login";
+                labelAuthUser.Text = "Akun: belum dipairing";
             }
 
-            btnLogin.Text = HasSavedAuthState ? "Logout" : "Login";
+            btnLogin.Text = HasSavedAuthState ? "Lepas Pairing" : "Pair Akun";
         }
 
         private async Task LoginAsync(string identifier, string password)
         {
             try
             {
-                statusLabel.Text = "Login ke server...";
+                statusLabel.Text = "Memverifikasi akun untuk pairing...";
+
+                await EnsureRegisteredAsync();
+                if (string.IsNullOrWhiteSpace(_clientId))
+                {
+                    statusLabel.Text = "Client ID belum siap. Coba lagi.";
+                    return;
+                }
 
                 var payload = JsonSerializer.Serialize(new
                 {
@@ -376,7 +383,9 @@ namespace PrintForm
                 });
 
                 using var content = new StringContent(payload, Encoding.UTF8, "application/json");
-                using var response = await Http.PostAsync($"{_serverBaseUrl}/api/auth/login", content);
+                using var response = await Http.PostAsync(
+                    $"{_serverBaseUrl}/api/clients/{Uri.EscapeDataString(_clientId)}/pair",
+                    content);
                 var responseBody = await response.Content.ReadAsStringAsync();
 
                 if (!response.IsSuccessStatusCode)
@@ -384,44 +393,41 @@ namespace PrintForm
                     var apiError = TryExtractApiError(responseBody);
                     if (response.StatusCode == HttpStatusCode.Unauthorized)
                     {
-                        statusLabel.Text = "Login gagal. Periksa identifier/password.";
+                        statusLabel.Text = "Pairing gagal. Periksa identifier/password.";
+                    }
+                    else if (response.StatusCode == HttpStatusCode.Forbidden)
+                    {
+                        statusLabel.Text = apiError ?? "Client ini sudah dimiliki akun lain.";
                     }
                     else
                     {
-                        statusLabel.Text = apiError ?? $"Login gagal ({(int)response.StatusCode}).";
+                        statusLabel.Text = apiError ?? $"Pairing gagal ({(int)response.StatusCode}).";
                     }
                     return;
                 }
 
                 if (!TryApplyAuthBundle(responseBody))
                 {
-                    statusLabel.Text = "Respons login tidak valid.";
+                    statusLabel.Text = "Respons pairing tidak valid.";
                     return;
                 }
 
-                await RegisterClientAsync();
-
-                var bindOk = await BindClientToCurrentAccountAsync();
-                if (bindOk)
-                {
-                    statusLabel.Text = $"Login berhasil sebagai {_authUsername ?? identifier}. Client siap menerima job.";
-                }
-                else
-                {
-                    statusLabel.Text = $"Login berhasil sebagai {_authUsername ?? identifier}, tetapi bind client belum berhasil.";
-                }
+                await SendHeartbeatAsync();
+                statusLabel.Text = $"Pairing berhasil sebagai {_authUsername ?? identifier}. Client siap menerima job.";
             }
             catch
             {
-                statusLabel.Text = "Tidak bisa login ke server.";
+                statusLabel.Text = "Tidak bisa melakukan pairing ke server.";
             }
         }
 
-        private async Task<bool> BindClientToCurrentAccountAsync()
+        private async Task UnpairClientAsync()
         {
-            if (!IsAuthenticated || string.IsNullOrWhiteSpace(_clientId))
+            if (string.IsNullOrWhiteSpace(_clientId))
             {
-                return false;
+                ClearAuthState();
+                statusLabel.Text = "Pairing lokal dilepas.";
+                return;
             }
 
             try
@@ -429,7 +435,7 @@ namespace PrintForm
                 using var content = new StringContent("{}", Encoding.UTF8, "application/json");
                 using var request = new HttpRequestMessage(
                     HttpMethod.Post,
-                    $"{_serverBaseUrl}/api/clients/{Uri.EscapeDataString(_clientId)}/bind")
+                    $"{_serverBaseUrl}/api/clients/{Uri.EscapeDataString(_clientId)}/unbind")
                 {
                     Content = content
                 };
@@ -439,42 +445,18 @@ namespace PrintForm
                 {
                     var responseBody = await response.Content.ReadAsStringAsync();
                     var apiError = TryExtractApiError(responseBody);
-                    statusLabel.Text = apiError ?? $"Gagal bind client ({(int)response.StatusCode}).";
-                    return false;
+                    statusLabel.Text = apiError ?? $"Gagal melepas pairing ({(int)response.StatusCode}).";
+                    return;
                 }
 
-                return true;
+                ClearAuthState();
+                await SendHeartbeatAsync();
+                statusLabel.Text = "Pairing berhasil dilepas dari akun.";
             }
             catch
             {
-                statusLabel.Text = "Tidak bisa bind client ke akun.";
-                return false;
+                statusLabel.Text = "Tidak bisa menghubungi server untuk melepas pairing.";
             }
-        }
-
-        private async Task LogoutAsync()
-        {
-            var refreshToken = _refreshToken;
-            if (!string.IsNullOrWhiteSpace(refreshToken))
-            {
-                try
-                {
-                    var payload = JsonSerializer.Serialize(new
-                    {
-                        refreshToken
-                    });
-                    using var content = new StringContent(payload, Encoding.UTF8, "application/json");
-                    using var _ = await Http.PostAsync($"{_serverBaseUrl}/api/auth/logout", content);
-                }
-                catch
-                {
-                    // Abaikan error logout server; state lokal tetap dibersihkan.
-                }
-            }
-
-            ClearAuthState();
-            await SendHeartbeatAsync();
-            statusLabel.Text = "Logout berhasil. Client tetap bind (mode owned).";
         }
 
         private async Task<bool> TryRefreshAccessTokenAsync(bool updateStatusOnFailure)
@@ -510,7 +492,7 @@ namespace PrintForm
                         ClearAuthState();
                         if (updateStatusOnFailure)
                         {
-                            statusLabel.Text = "Sesi login berakhir. Silakan login ulang.";
+                            statusLabel.Text = "Sesi pairing berakhir. Silakan pair akun ulang.";
                         }
                     }
                     else if (updateStatusOnFailure)
@@ -537,7 +519,7 @@ namespace PrintForm
             {
                 if (updateStatusOnFailure)
                 {
-                    statusLabel.Text = "Tidak bisa memperbarui sesi login.";
+                    statusLabel.Text = "Tidak bisa memperbarui sesi pairing.";
                 }
                 return false;
             }
@@ -726,7 +708,7 @@ namespace PrintForm
                 {
                     if (response.StatusCode == HttpStatusCode.Unauthorized)
                     {
-                        statusLabel.Text = "Client dikenali server. Silakan login agar bisa menerima job.";
+                        statusLabel.Text = "Client dikenali server. Silakan pair akun untuk mengaktifkan client.";
                     }
                     else
                     {
@@ -752,7 +734,7 @@ namespace PrintForm
 
                 if (recognized && !IsAuthenticated)
                 {
-                    statusLabel.Text = "Client dikenali. Login diperlukan untuk operasi lanjutan.";
+                    statusLabel.Text = "Client sudah bind akun, tetapi sesi pairing belum aktif.";
                 }
                 else
                 {
@@ -819,7 +801,7 @@ namespace PrintForm
 
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
-                    statusLabel.Text = "Perlu login mitra untuk mengaktifkan client ini.";
+                    statusLabel.Text = "Perlu pairing akun untuk mengaktifkan client ini.";
                     return;
                 }
 
@@ -854,7 +836,7 @@ namespace PrintForm
 
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
-                    statusLabel.Text = "Perlu login mitra untuk sinkronisasi ping.";
+                    statusLabel.Text = "Perlu pairing akun untuk sinkronisasi ping.";
                     return;
                 }
 
@@ -1037,7 +1019,7 @@ namespace PrintForm
             using var response = await SendAuthorizedAsync(request);
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                statusLabel.Text = "Sesi login habis. Login ulang sebelum mengambil file job.";
+                statusLabel.Text = "Sesi pairing habis. Pair akun ulang sebelum mengambil file job.";
                 return null;
             }
 
