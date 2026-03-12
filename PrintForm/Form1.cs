@@ -399,12 +399,56 @@ namespace PrintForm
                     return;
                 }
 
-                statusLabel.Text = $"Login berhasil sebagai {_authUsername ?? identifier}.";
                 await RegisterClientAsync();
+
+                var bindOk = await BindClientToCurrentAccountAsync();
+                if (bindOk)
+                {
+                    statusLabel.Text = $"Login berhasil sebagai {_authUsername ?? identifier}. Client siap menerima job.";
+                }
+                else
+                {
+                    statusLabel.Text = $"Login berhasil sebagai {_authUsername ?? identifier}, tetapi bind client belum berhasil.";
+                }
             }
             catch
             {
                 statusLabel.Text = "Tidak bisa login ke server.";
+            }
+        }
+
+        private async Task<bool> BindClientToCurrentAccountAsync()
+        {
+            if (!IsAuthenticated || string.IsNullOrWhiteSpace(_clientId))
+            {
+                return false;
+            }
+
+            try
+            {
+                using var content = new StringContent("{}", Encoding.UTF8, "application/json");
+                using var request = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    $"{_serverBaseUrl}/api/clients/{Uri.EscapeDataString(_clientId)}/bind")
+                {
+                    Content = content
+                };
+
+                using var response = await SendAuthorizedAsync(request);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var responseBody = await response.Content.ReadAsStringAsync();
+                    var apiError = TryExtractApiError(responseBody);
+                    statusLabel.Text = apiError ?? $"Gagal bind client ({(int)response.StatusCode}).";
+                    return false;
+                }
+
+                return true;
+            }
+            catch
+            {
+                statusLabel.Text = "Tidak bisa bind client ke akun.";
+                return false;
             }
         }
 
@@ -429,7 +473,8 @@ namespace PrintForm
             }
 
             ClearAuthState();
-            statusLabel.Text = "Logout berhasil.";
+            await SendHeartbeatAsync();
+            statusLabel.Text = "Logout berhasil. Client tetap bind (mode owned).";
         }
 
         private async Task<bool> TryRefreshAccessTokenAsync(bool updateStatusOnFailure)
