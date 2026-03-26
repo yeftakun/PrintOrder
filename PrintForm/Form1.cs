@@ -21,6 +21,7 @@ namespace PrintForm
     {
         // Menyimpan gambar yang akan di-print via PrintDocument
         private Image? _imageToPrint;
+        private int _activeContentScale = 100;
         private static readonly HttpClient Http = CreateHttpClient();
         private readonly string _serverBaseUrl = AppConfig.LoadServerBaseUrl();
         private readonly SemaphoreSlim _authRefreshLock = new SemaphoreSlim(1, 1);
@@ -209,40 +210,53 @@ namespace PrintForm
 
             if (_imageToPrint == null)
             {
-                using Font font = new Font("Segoe UI", 12);
-                graphics.DrawString("Tidak ada dokumen gambar yang dipilih.",
-                                    font, Brushes.Black,
-                                    e.MarginBounds.Location);
+                 // Tidak ada gambar, skip
                 e.HasMorePages = false;
                 return;
             }
 
-            Rectangle m = e.MarginBounds;
+            // Gunakan PageBounds (Ukuran Fisik Kertas)
+            // Karena kita set Margins(0,0,0,0), MarginBounds == PageBounds secara logika size, 
+            // tapi kita ingin menghitung posisi relatif terhadap fisik kertas.
+            Rectangle p = e.PageBounds;
 
-            // Rasio aspek gambar dan halaman
+            // Hitung Best Fit Base (100%) -> Fit to Paper
             float imgRatio = (float)_imageToPrint.Width / _imageToPrint.Height;
-            float pageRatio = (float)m.Width / m.Height;
+            float pageRatio = (float)p.Width / p.Height;
 
-            Rectangle drawRect;
+            int baseWidth, baseHeight;
 
             if (imgRatio > pageRatio)
             {
-                // Gambar lebih lebar
-                int drawWidth = m.Width;
-                int drawHeight = (int)(m.Width / imgRatio);
-                int drawY = m.Top + (m.Height - drawHeight) / 2;
-                drawRect = new Rectangle(m.Left, drawY, drawWidth, drawHeight);
+                // Gambar lebih lebar (relative to page) -> Fit Width
+                baseWidth = p.Width;
+                baseHeight = (int)(p.Width / imgRatio);
             }
             else
             {
-                // Gambar lebih tinggi
-                int drawHeight = m.Height;
-                int drawWidth = (int)(m.Height * imgRatio);
-                int drawX = m.Left + (m.Width - drawWidth) / 2;
-                drawRect = new Rectangle(drawX, m.Top, drawWidth, drawHeight);
+                // Gambar lebih tinggi -> Fit Height
+                baseHeight = p.Height;
+                baseWidth = (int)(p.Height * imgRatio);
             }
 
-            graphics.DrawImage(_imageToPrint, drawRect);
+            // Terapkan Scaling dari Konfigurasi
+            float scaleFactor = _activeContentScale / 100.0f;
+            int drawWidth = (int)(baseWidth * scaleFactor);
+            int drawHeight = (int)(baseHeight * scaleFactor);
+
+            // Centering di Fisik Kertas
+            // Koordinat (0,0) PageBounds adalah pojok kiri atas kertas fisik.
+            int physX = (p.Width - drawWidth) / 2;
+            int physY = (p.Height - drawHeight) / 2;
+
+            // Adjust ke Koordinat Graphics
+            // Graphics Origin (0,0) biasanya dimulai dari HardMarginTopLeft.
+            // Jadi untuk menggambar di (physX, physY) kertas fisik, kita harus kurangi HardMargin.
+            float hardX = e.PageSettings.HardMarginX;
+            float hardY = e.PageSettings.HardMarginY;
+
+            // Gambar
+            graphics.DrawImage(_imageToPrint, new Rectangle(physX - (int)hardX, physY - (int)hardY, drawWidth, drawHeight));
 
             e.HasMorePages = false;
         }
@@ -1181,21 +1195,57 @@ namespace PrintForm
                 return;
             }
 
+            // Set Margin 0 agar app tidak melakukan shrink software.
+            // Driver printer tetap punya hard-margin sendiri.
+            printDocument1.DefaultPageSettings.Margins = new Margins(0, 0, 0, 0);
+            _activeContentScale = 100;
+
             if (job.PrintConfig != null)
             {
-                if (job.PrintConfig.Copies >= 1 && job.PrintConfig.Copies <= 999)
+                var config = job.PrintConfig;
+                _activeContentScale = config.ContentScale;
+
+                if (config.Copies >= 1 && config.Copies <= 999)
                 {
-                    printDocument1.PrinterSettings.Copies = (short)job.PrintConfig.Copies;
+                    printDocument1.PrinterSettings.Copies = (short)config.Copies;
                 }
 
-                if (!string.IsNullOrWhiteSpace(job.PrintConfig.PaperSize))
+                // Color Mode
+                if (!string.IsNullOrWhiteSpace(config.ColorMode))
                 {
+                    printDocument1.DefaultPageSettings.Color = !string.Equals(config.ColorMode, "bw", StringComparison.OrdinalIgnoreCase);
+                }
+
+                // Orientation
+                if (!string.IsNullOrWhiteSpace(config.Orientation))
+                {
+                    printDocument1.DefaultPageSettings.Landscape = string.Equals(config.Orientation, "landscape", StringComparison.OrdinalIgnoreCase);
+                }
+
+                // Paper Size
+                if (!string.IsNullOrWhiteSpace(config.PaperSize))
+                {
+                    bool found = false;
                     foreach (PaperSize size in printDocument1.PrinterSettings.PaperSizes)
                     {
-                        if (string.Equals(size.PaperName, job.PrintConfig.PaperSize, StringComparison.OrdinalIgnoreCase))
+                        if (string.Equals(size.PaperName, config.PaperSize, StringComparison.OrdinalIgnoreCase))
                         {
                             printDocument1.DefaultPageSettings.PaperSize = size;
+                            found = true;
                             break;
+                        }
+                    }
+
+                    // Fallback: Jika F4 tidak ada, coba Legal
+                    if (!found && string.Equals(config.PaperSize, "F4", StringComparison.OrdinalIgnoreCase))
+                    {
+                        foreach (PaperSize size in printDocument1.PrinterSettings.PaperSizes)
+                        {
+                            if (size.Kind == PaperKind.Legal || string.Equals(size.PaperName, "Legal", StringComparison.OrdinalIgnoreCase))
+                            {
+                                printDocument1.DefaultPageSettings.PaperSize = size;
+                                break;
+                            }
                         }
                     }
                 }
