@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <None Include="Assets\logo_printform.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\Icons\*.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -1,4 +1,5 @@
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 
 namespace PrintForm
 {
@@ -74,6 +75,109 @@ namespace PrintForm
             }
 
             return fallback;
+        }
+    }
+
+    internal static class IconAssets
+    {
+        private static readonly Dictionary<string, Image> Cache = new();
+
+        public static string? ResolveFileName(IconKind kind)
+        {
+            return kind switch
+            {
+                IconKind.Server => "server.png",
+                IconKind.Account => "user.png",
+                IconKind.ClientId => "id-card.png",
+                IconKind.Printer => "printer.png",
+                IconKind.Document => "file-text.png",
+                IconKind.Settings => "settings.png",
+                IconKind.LinkOff => "unlink.png",
+                IconKind.Bars => "chart-bars.png",
+                IconKind.Lightning => "bolt.png",
+                _ => null
+            };
+        }
+
+        public static Image? TryGet(IconKind kind)
+        {
+            var fileName = ResolveFileName(kind);
+            if (string.IsNullOrWhiteSpace(fileName))
+            {
+                return null;
+            }
+
+            var path = Path.Combine(AppContext.BaseDirectory, "Assets", "Icons", fileName);
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+
+            if (Cache.TryGetValue(path, out var cached))
+            {
+                return cached;
+            }
+
+            try
+            {
+                using var stream = File.OpenRead(path);
+                using var source = Image.FromStream(stream);
+                var bitmap = new Bitmap(source);
+                Cache[path] = bitmap;
+                return bitmap;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public static void DrawIcon(Graphics graphics, IconKind kind, Rectangle destination, Color color, float fallbackStrokeWidth = 2.2F)
+        {
+            var image = TryGet(kind);
+
+            if (image == null)
+            {
+                UiIconPainter.DrawIcon(graphics, kind, destination, color, fallbackStrokeWidth);
+                return;
+            }
+
+            graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            graphics.CompositingQuality = CompositingQuality.HighQuality;
+
+            using var attributes = CreateTintAttributes(color);
+
+            graphics.DrawImage(
+                image,
+                destination,
+                0,
+                0,
+                image.Width,
+                image.Height,
+                GraphicsUnit.Pixel,
+                attributes);
+        }
+
+        private static ImageAttributes CreateTintAttributes(Color color)
+        {
+            var r = color.R / 255F;
+            var g = color.G / 255F;
+            var b = color.B / 255F;
+            var a = color.A / 255F;
+
+            var matrix = new ColorMatrix(new[]
+            {
+                new float[] { 0, 0, 0, 0, 0 },
+                new float[] { 0, 0, 0, 0, 0 },
+                new float[] { 0, 0, 0, 0, 0 },
+                new float[] { 0, 0, 0, a, 0 },
+                new float[] { r, g, b, 0, 1 }
+            });
+
+            var attributes = new ImageAttributes();
+            attributes.SetColorMatrix(matrix, ColorMatrixFlag.Default, ColorAdjustType.Bitmap);
+            return attributes;
         }
     }
 
@@ -313,7 +417,7 @@ namespace PrintForm
 
             var padding = Circle ? 14 : 2;
             var iconRect = Rectangle.Inflate(rect, -padding, -padding);
-            UiIconPainter.DrawIcon(e.Graphics, Kind, iconRect, IconColor);
+            IconAssets.DrawIcon(e.Graphics, Kind, iconRect, IconColor);
         }
     }
 
@@ -363,9 +467,11 @@ namespace PrintForm
         }
     }
 
-    internal class RoundedButton : Button
+    internal class RoundedButton : Control
     {
         private bool _useAccentFill;
+        private bool _isHovered;
+        private bool _isPressed;
         private IconKind _iconKind = IconKind.None;
 
         public bool UseAccentFill
@@ -396,52 +502,104 @@ namespace PrintForm
                 ControlStyles.UserPaint |
                 ControlStyles.AllPaintingInWmPaint |
                 ControlStyles.OptimizedDoubleBuffer |
-                ControlStyles.ResizeRedraw,
+                ControlStyles.ResizeRedraw |
+                ControlStyles.Selectable,
                 true);
 
-            FlatStyle = FlatStyle.Flat;
-            FlatAppearance.BorderSize = 0;
-            UseVisualStyleBackColor = false;
             Cursor = Cursors.Hand;
             Font = new Font("Segoe UI", 10.5F, FontStyle.Bold);
+            TabStop = true;
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            e.Graphics.CompositingQuality = CompositingQuality.HighQuality;
 
             using var backgroundBrush = new SolidBrush(UiDrawing.ResolveSurfaceColor(this, UiTheme.PageBackground));
             e.Graphics.FillRectangle(backgroundBrush, ClientRectangle);
 
             var rect = ClientRectangle;
-            rect.Inflate(-1, -1);
+            rect.Width -= 1;
+            rect.Height -= 1;
 
-            var fillColor = Enabled
-                ? UseAccentFill ? UiTheme.Accent : Color.White
-                : UiTheme.DisabledBackground;
-
-            var borderColor = Enabled
-                ? UseAccentFill ? UiTheme.Accent : UiTheme.Accent
-                : UiTheme.Border;
-
-            var contentColor = Enabled
-                ? UseAccentFill ? Color.White : UiTheme.Text
-                : UiTheme.DisabledText;
+            var fillColor = ResolveFillColor();
+            var borderColor = ResolveBorderColor();
+            var contentColor = ResolveContentColor();
 
             using var path = UiDrawing.CreateRoundedRectangle(rect, CornerRadius);
             using var fillBrush = new SolidBrush(fillColor);
-            using var borderPen = new Pen(borderColor, 1.4F);
-
             e.Graphics.FillPath(fillBrush, path);
-            e.Graphics.DrawPath(borderPen, path);
+
+            if (!UseAccentFill || !Enabled)
+            {
+                using var borderPen = new Pen(borderColor, 1.2F);
+                e.Graphics.DrawPath(borderPen, path);
+            }
 
             DrawButtonContent(e.Graphics, rect, contentColor);
+        }
+
+        private Color ResolveFillColor()
+        {
+            if (!Enabled)
+            {
+                return UiTheme.DisabledBackground;
+            }
+
+            if (UseAccentFill)
+            {
+                if (_isPressed)
+                {
+                    return Color.FromArgb(190, 65, 31);
+                }
+
+                if (_isHovered)
+                {
+                    return Color.FromArgb(226, 91, 48);
+                }
+
+                return UiTheme.Accent;
+            }
+
+            if (_isPressed)
+            {
+                return Color.FromArgb(255, 246, 242);
+            }
+
+            if (_isHovered)
+            {
+                return Color.FromArgb(255, 251, 249);
+            }
+
+            return Color.White;
+        }
+
+        private Color ResolveBorderColor()
+        {
+            if (!Enabled)
+            {
+                return UiTheme.Border;
+            }
+
+            return UiTheme.Accent;
+        }
+
+        private Color ResolveContentColor()
+        {
+            if (!Enabled)
+            {
+                return UiTheme.DisabledText;
+            }
+
+            return UseAccentFill ? Color.White : UiTheme.Text;
         }
 
         private void DrawButtonContent(Graphics graphics, Rectangle rect, Color contentColor)
         {
             var text = Text ?? string.Empty;
-            var iconSize = IconKind == IconKind.None ? 0 : 22;
+            var iconSize = IconKind == IconKind.None ? 0 : 20;
             var gap = IconKind == IconKind.None ? 0 : 10;
 
             var textSize = TextRenderer.MeasureText(
@@ -458,14 +616,14 @@ namespace PrintForm
             if (IconKind != IconKind.None)
             {
                 var iconRect = new Rectangle(startX, centerY - iconSize / 2, iconSize, iconSize);
-                UiIconPainter.DrawIcon(graphics, IconKind, iconRect, contentColor, 2.1F);
+                IconAssets.DrawIcon(graphics, IconKind, iconRect, contentColor, 2.1F);
                 startX += iconSize + gap;
             }
 
             var textRect = new Rectangle(
                 startX,
                 rect.Y,
-                Math.Min(textSize.Width + 6, rect.Right - startX),
+                Math.Min(textSize.Width + 8, rect.Right - startX),
                 rect.Height);
 
             TextRenderer.DrawText(
@@ -479,6 +637,56 @@ namespace PrintForm
                 TextFormatFlags.SingleLine |
                 TextFormatFlags.EndEllipsis |
                 TextFormatFlags.NoPadding);
+        }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            base.OnMouseEnter(e);
+            _isHovered = true;
+            Invalidate();
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            _isHovered = false;
+            _isPressed = false;
+            Invalidate();
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+
+            if (e.Button == MouseButtons.Left && Enabled)
+            {
+                _isPressed = true;
+                Focus();
+                Invalidate();
+            }
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+
+            if (_isPressed)
+            {
+                _isPressed = false;
+                Invalidate();
+            }
+        }
+
+        protected override void OnEnabledChanged(EventArgs e)
+        {
+            base.OnEnabledChanged(e);
+            Invalidate();
+        }
+
+        protected override void OnTextChanged(EventArgs e)
+        {
+            base.OnTextChanged(e);
+            Invalidate();
         }
     }
 }

@@ -82,18 +82,18 @@ namespace PrintForm
             var headerPanel = new Panel
             {
                 Location = new Point(0, 0),
-                Size = new Size(1180, 160),
+                Size = new Size(1180, 145),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = Color.White
             };
 
             dashboardHeaderContent.Location = new Point(0, 0);
-            dashboardHeaderContent.Size = new Size(980, 160);
+            dashboardHeaderContent.Size = new Size(980, 145);
             dashboardHeaderContent.BackColor = Color.White;
 
             var separator = new Panel
             {
-                Location = new Point(0, 159),
+                Location = new Point(0, 144),
                 Size = new Size(1180, 1),
                 Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
                 BackColor = UiTheme.Border
@@ -101,7 +101,7 @@ namespace PrintForm
 
             var logoBox = new PictureBox
             {
-                Location = new Point(0, 34),
+                Location = new Point(0, 28),
                 Size = new Size(76, 76),
                 SizeMode = PictureBoxSizeMode.Zoom
             };
@@ -115,7 +115,7 @@ namespace PrintForm
             var titleLabel = new Label
             {
                 AutoSize = false,
-                Location = new Point(112, 39),
+                Location = new Point(112, 33),
                 Size = new Size(520, 42),
                 Font = new Font("Segoe UI", 24F, FontStyle.Bold),
                 ForeColor = UiTheme.Text,
@@ -125,7 +125,7 @@ namespace PrintForm
             var subtitleLabel = new Label
             {
                 AutoSize = false,
-                Location = new Point(115, 88),
+                Location = new Point(115, 82),
                 Size = new Size(610, 30),
                 Font = new Font("Segoe UI", 12.5F, FontStyle.Regular),
                 ForeColor = UiTheme.MutedText,
@@ -144,7 +144,7 @@ namespace PrintForm
             // 
             var contentPanel = new Panel
             {
-                Location = new Point(0, 160),
+                Location = new Point(0, 145),
                 Size = new Size(1180, 620),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = UiTheme.PageBackground
@@ -237,7 +237,7 @@ namespace PrintForm
             var printerCard = new RoundedPanel
             {
                 Location = new Point(0, 260),
-                Size = new Size(980, 160),
+                Size = new Size(980, 172),
                 CornerRadius = 10,
                 FillColor = Color.White,
                 BorderColor = UiTheme.Border
@@ -273,14 +273,14 @@ namespace PrintForm
             var printerInfo = new Label
             {
                 AutoSize = false,
-                Location = new Point(22, 103),
+                Location = new Point(22, 98),
                 Size = new Size(920, 26),
                 Font = new Font("Segoe UI", 10F, FontStyle.Regular),
                 ForeColor = UiTheme.MutedText,
                 Text = "Dokumen dicetak menyesuaikan area cetak printer terpilih agar konten tidak terpotong."
             };
 
-            alertPairing.Location = new Point(22, 128);
+            alertPairing.Location = new Point(22, 126);
             alertPairing.Size = new Size(936, 34);
             alertPairing.CornerRadius = 8;
             alertPairing.FillColor = Color.FromArgb(255, 247, 244);
@@ -294,7 +294,7 @@ namespace PrintForm
                 Font = new Font("Segoe UI", 10F, FontStyle.Regular),
                 ForeColor = UiTheme.MutedText,
                 TextAlign = ContentAlignment.MiddleLeft,
-                Text = "ⓘ  Hubungkan client dengan akun PrintForm untuk mulai menerima tugas cetak."
+                Text = "ⓘ  Pair akun terlebih dahulu untuk mulai menerima tugas cetak."
             };
 
             alertPairing.Controls.Add(alertText);
@@ -312,7 +312,7 @@ namespace PrintForm
             // 
             var actionIcon = new IconBadge
             {
-                Location = new Point(0, 439),
+                Location = new Point(0, 452),
                 Size = new Size(28, 28),
                 Kind = IconKind.Lightning,
                 Circle = false,
@@ -322,7 +322,7 @@ namespace PrintForm
             var actionTitle = new Label
             {
                 AutoSize = false,
-                Location = new Point(40, 441),
+                Location = new Point(40, 454),
                 Size = new Size(300, 30),
                 Font = new Font("Segoe UI", 14F, FontStyle.Bold),
                 ForeColor = UiTheme.Text,
@@ -335,27 +335,27 @@ namespace PrintForm
             // 
             // Buttons
             // 
-            btnJobList.Location = new Point(0, 478);
+            btnJobList.Location = new Point(0, 490);
             btnJobList.Name = "btnJobList";
-            btnJobList.Size = new Size(360, 66);
+            btnJobList.Size = new Size(360, 62);
             btnJobList.TabIndex = 2;
             btnJobList.Text = "Daftar Tugas Cetak";
             btnJobList.IconKind = IconKind.Document;
             btnJobList.UseAccentFill = true;
             btnJobList.Click += btnJobList_Click;
 
-            btnSettings.Location = new Point(380, 478);
+            btnSettings.Location = new Point(380, 490);
             btnSettings.Name = "btnSettings";
-            btnSettings.Size = new Size(290, 66);
+            btnSettings.Size = new Size(290, 62);
             btnSettings.TabIndex = 3;
             btnSettings.Text = "Pengaturan";
             btnSettings.IconKind = IconKind.Settings;
             btnSettings.UseAccentFill = false;
             btnSettings.Click += btnSettings_Click;
 
-            btnLogin.Location = new Point(690, 478);
+            btnLogin.Location = new Point(690, 490);
             btnLogin.Name = "btnLogin";
-            btnLogin.Size = new Size(290, 66);
+            btnLogin.Size = new Size(290, 62);
             btnLogin.TabIndex = 4;
             btnLogin.Text = "Pair Akun";
             btnLogin.IconKind = IconKind.Account;
