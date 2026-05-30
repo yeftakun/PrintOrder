@@ -157,15 +157,13 @@ namespace PrintForm
             // 
             // Ringkasan Status title
             // 
-            var statusIcon = new Label
+            var statusIcon = new IconBadge
             {
-                AutoSize = false,
-                Location = new Point(0, 16),
-                Size = new Size(34, 30),
-                Font = new Font("Segoe UI", 20F, FontStyle.Bold),
-                ForeColor = UiTheme.Accent,
-                Text = "▮",
-                TextAlign = ContentAlignment.MiddleCenter
+                Location = new Point(0, 18),
+                Size = new Size(28, 28),
+                Kind = IconKind.Bars,
+                Circle = false,
+                IconColor = UiTheme.Accent
             };
 
             var statusTitle = new Label
@@ -186,7 +184,7 @@ namespace PrintForm
             // 
             var serverCard = CreateStatusCard(
                 "Status Server",
-                "▤",
+                IconKind.Server,
                 UiTheme.Success,
                 UiTheme.SuccessSoft,
                 new Point(0, 52),
@@ -197,7 +195,7 @@ namespace PrintForm
 
             var accountCard = CreateStatusCard(
                 "Pairing Akun",
-                "♙",
+                IconKind.Account,
                 UiTheme.Accent,
                 UiTheme.AccentSoft,
                 new Point(500, 52),
@@ -208,7 +206,7 @@ namespace PrintForm
 
             var clientCard = CreateStatusCard(
                 "Client ID",
-                "▣",
+                IconKind.ClientId,
                 UiTheme.Accent,
                 UiTheme.AccentSoft,
                 new Point(0, 154),
@@ -219,7 +217,7 @@ namespace PrintForm
 
             var printerStatusCard = CreateStatusCard(
                 "Status Printer",
-                "▥",
+                IconKind.Printer,
                 UiTheme.Success,
                 UiTheme.SuccessSoft,
                 new Point(500, 154),
@@ -245,15 +243,13 @@ namespace PrintForm
                 BorderColor = UiTheme.Border
             };
 
-            var printerIcon = new Label
+            var printerIcon = new IconBadge
             {
-                AutoSize = false,
-                Location = new Point(22, 19),
-                Size = new Size(30, 30),
-                Font = new Font("Segoe UI", 18F, FontStyle.Bold),
-                ForeColor = UiTheme.Accent,
-                Text = "▥",
-                TextAlign = ContentAlignment.MiddleCenter
+                Location = new Point(22, 22),
+                Size = new Size(24, 24),
+                Kind = IconKind.Printer,
+                Circle = false,
+                IconColor = UiTheme.Accent
             };
 
             var printerTitle = new Label
@@ -314,15 +310,13 @@ namespace PrintForm
             // 
             // Aksi Cepat title
             // 
-            var actionIcon = new Label
+            var actionIcon = new IconBadge
             {
-                AutoSize = false,
-                Location = new Point(0, 438),
-                Size = new Size(34, 30),
-                Font = new Font("Segoe UI", 20F, FontStyle.Bold),
-                ForeColor = UiTheme.Accent,
-                Text = "↯",
-                TextAlign = ContentAlignment.MiddleCenter
+                Location = new Point(0, 439),
+                Size = new Size(28, 28),
+                Kind = IconKind.Lightning,
+                Circle = false,
+                IconColor = UiTheme.Accent
             };
 
             var actionTitle = new Label
@@ -345,7 +339,8 @@ namespace PrintForm
             btnJobList.Name = "btnJobList";
             btnJobList.Size = new Size(360, 66);
             btnJobList.TabIndex = 2;
-            btnJobList.Text = "▤  Daftar Tugas Cetak";
+            btnJobList.Text = "Daftar Tugas Cetak";
+            btnJobList.IconKind = IconKind.Document;
             btnJobList.UseAccentFill = true;
             btnJobList.Click += btnJobList_Click;
 
@@ -353,7 +348,8 @@ namespace PrintForm
             btnSettings.Name = "btnSettings";
             btnSettings.Size = new Size(290, 66);
             btnSettings.TabIndex = 3;
-            btnSettings.Text = "⚙  Pengaturan";
+            btnSettings.Text = "Pengaturan";
+            btnSettings.IconKind = IconKind.Settings;
             btnSettings.UseAccentFill = false;
             btnSettings.Click += btnSettings_Click;
 
@@ -361,7 +357,8 @@ namespace PrintForm
             btnLogin.Name = "btnLogin";
             btnLogin.Size = new Size(290, 66);
             btnLogin.TabIndex = 4;
-            btnLogin.Text = "♙  Pair Akun";
+            btnLogin.Text = "Pair Akun";
+            btnLogin.IconKind = IconKind.Account;
             btnLogin.UseAccentFill = true;
             btnLogin.Click += btnLogin_Click;
 
@@ -423,7 +420,7 @@ namespace PrintForm
 
         private static RoundedPanel CreateStatusCard(
             string title,
-            string icon,
+            IconKind iconKind,
             Color iconColor,
             Color iconBackground,
             Point location,
@@ -438,25 +435,15 @@ namespace PrintForm
                 BorderColor = UiTheme.Border
             };
 
-            var iconCircle = new RoundedPanel
+            var iconBadge = new IconBadge
             {
                 Location = new Point(20, 18),
                 Size = new Size(56, 56),
-                CornerRadius = 28,
-                FillColor = iconBackground,
-                BorderThickness = 0
+                Kind = iconKind,
+                Circle = true,
+                CircleBackColor = iconBackground,
+                IconColor = iconColor
             };
-
-            var iconLabel = new Label
-            {
-                Dock = DockStyle.Fill,
-                Font = new Font("Segoe UI", 18F, FontStyle.Bold),
-                ForeColor = iconColor,
-                Text = icon,
-                TextAlign = ContentAlignment.MiddleCenter
-            };
-
-            iconCircle.Controls.Add(iconLabel);
 
             var titleLabel = new Label
             {
@@ -479,7 +466,7 @@ namespace PrintForm
                 Text = "-"
             };
 
-            card.Controls.Add(iconCircle);
+            card.Controls.Add(iconBadge);
             card.Controls.Add(titleLabel);
             card.Controls.Add(valueLabel);
 

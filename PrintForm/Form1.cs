@@ -382,8 +382,12 @@ namespace PrintForm
                 : UiTheme.Accent;
 
             btnLogin.Text = isPaired
-                ? "↯  Lepas Pairing"
-                : "♙  Pair Akun";
+                ? "Lepas Pairing"
+                : "Pair Akun";
+
+            btnLogin.IconKind = isPaired
+                ? IconKind.LinkOff
+                : IconKind.Account;
 
             btnLogin.UseAccentFill = !isPaired;
 
