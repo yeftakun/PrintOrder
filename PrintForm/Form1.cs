@@ -5,6 +5,7 @@ using System.Drawing.Printing;
 using System.IO;
 using System.Linq;
 using System.Management;
+using System.Media;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -40,6 +41,12 @@ namespace PrintForm
         private ClientWebSocket? _realtimeSocket;
         private CancellationTokenSource? _realtimeCts;
         private Task? _realtimeWorker;
+
+        private readonly object _jobNotificationLock = new object();
+        private readonly HashSet<string> _notifiedRealtimeJobIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private DateTime _lastJobNotificationAtUtc = DateTime.MinValue;
+        private SoundPlayer? _incomingJobSoundPlayer;
+        private bool _incomingJobSoundPlayerInitialized;
 
         private bool HasSavedAuthState => !string.IsNullOrWhiteSpace(_refreshToken);
         private bool IsAuthenticated => !string.IsNullOrWhiteSpace(_accessToken);
@@ -1764,6 +1771,17 @@ namespace PrintForm
         {
             StopTimers();
             StopRealtime();
+
+            try
+            {
+                _incomingJobSoundPlayer?.Dispose();
+                _incomingJobSoundPlayer = null;
+            }
+            catch
+            {
+                // Abaikan dispose error.
+            }
+
             // Jangan unregister saat shutdown: biarkan status offline dihitung dari timeout heartbeat.
         }
 
@@ -1983,6 +2001,13 @@ namespace PrintForm
                 switch (eventType)
                 {
                     case "job.created":
+                        if (ShouldRefreshJobsForCurrentClient(doc.RootElement))
+                        {
+                            NotifyIncomingJobFromRealtime(doc.RootElement);
+                            RequestJobListRefreshFromRealtime();
+                        }
+                        break;
+
                     case "job.status.changed":
                     case "jobs.removed":
                         if (ShouldRefreshJobsForCurrentClient(doc.RootElement))
@@ -1995,6 +2020,163 @@ namespace PrintForm
             catch
             {
                 // Abaikan pesan realtime yang tidak dikenali.
+            }
+        }
+
+        private void NotifyIncomingJobFromRealtime(JsonElement root)
+        {
+            if (!HasSavedAuthState)
+            {
+                return;
+            }
+
+            TryReadRealtimeJobId(root, out var jobId);
+
+            if (ShouldSkipIncomingJobSound(jobId))
+            {
+                return;
+            }
+
+            PlayIncomingJobSoundOnUiThread();
+        }
+
+        private bool ShouldSkipIncomingJobSound(string? jobId)
+        {
+            var now = DateTime.UtcNow;
+
+            lock (_jobNotificationLock)
+            {
+                // Hindari suara beruntun terlalu rapat jika beberapa event masuk hampir bersamaan.
+                if ((now - _lastJobNotificationAtUtc).TotalMilliseconds < 1000)
+                {
+                    return true;
+                }
+
+                if (_notifiedRealtimeJobIds.Count > 500)
+                {
+                    _notifiedRealtimeJobIds.Clear();
+                }
+
+                if (!string.IsNullOrWhiteSpace(jobId)
+                    && !_notifiedRealtimeJobIds.Add(jobId))
+                {
+                    return true;
+                }
+
+                _lastJobNotificationAtUtc = now;
+                return false;
+            }
+        }
+
+        private static bool TryReadRealtimeJobId(JsonElement root, out string jobId)
+        {
+            jobId = string.Empty;
+
+            if (!root.TryGetProperty("payload", out var payload))
+            {
+                return false;
+            }
+
+            if (payload.TryGetProperty("job", out var job)
+                && TryReadString(job, "id", out jobId))
+            {
+                return true;
+            }
+
+            if (TryReadString(payload, "jobId", out jobId))
+            {
+                return true;
+            }
+
+            if (TryReadString(payload, "id", out jobId))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private void PlayIncomingJobSoundOnUiThread()
+        {
+            if (IsDisposed)
+            {
+                return;
+            }
+
+            if (InvokeRequired)
+            {
+                try
+                {
+                    BeginInvoke(new Action(PlayIncomingJobSoundOnUiThread));
+                }
+                catch
+                {
+                    // Abaikan jika form sedang ditutup.
+                }
+
+                return;
+            }
+
+            PlayIncomingJobSound();
+        }
+
+        private void PlayIncomingJobSound()
+        {
+            try
+            {
+                var player = GetIncomingJobSoundPlayer();
+                if (player != null)
+                {
+                    player.Play();
+                    return;
+                }
+
+                SystemSounds.Asterisk.Play();
+            }
+            catch
+            {
+                try
+                {
+                    SystemSounds.Beep.Play();
+                }
+                catch
+                {
+                    // Abaikan jika suara sistem tidak tersedia.
+                }
+            }
+        }
+
+        private SoundPlayer? GetIncomingJobSoundPlayer()
+        {
+            if (_incomingJobSoundPlayerInitialized)
+            {
+                return _incomingJobSoundPlayer;
+            }
+
+            _incomingJobSoundPlayerInitialized = true;
+
+            var soundPath = Path.Combine(
+                AppContext.BaseDirectory,
+                "Assets",
+                "Sounds",
+                "job_incoming.wav");
+
+            if (!File.Exists(soundPath))
+            {
+                return null;
+            }
+
+            try
+            {
+                _incomingJobSoundPlayer = new SoundPlayer(soundPath);
+                _incomingJobSoundPlayer.LoadAsync();
+                return _incomingJobSoundPlayer;
+            }
+            catch
+            {
+                _incomingJobSoundPlayer?.Dispose();
+                _incomingJobSoundPlayer = null;
+                return null;
             }
         }
 
