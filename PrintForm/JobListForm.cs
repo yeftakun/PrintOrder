@@ -279,7 +279,10 @@ namespace PrintForm
 
             try
             {
-                using var request = new HttpRequestMessage(HttpMethod.Get, $"{_serverBaseUrl}/api/jobs?clientId={Uri.EscapeDataString(clientId)}");
+                var encodedClientId = Uri.EscapeDataString(clientId);
+                using var request = new HttpRequestMessage(
+                    HttpMethod.Get,
+                    $"{_serverBaseUrl}/api/jobs?claimClientId={encodedClientId}&activeSessionOnly=true");
                 using var response = await _sendAuthorizedAsync(request);
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
@@ -295,7 +298,8 @@ namespace PrintForm
                 }
 
                 var body = await response.Content.ReadAsStringAsync();
-                var jobs = JsonSerializer.Deserialize<List<PrintJob>>(body, _jsonOptions) ?? new List<PrintJob>();
+                var jobs = DeserializeVisibleJobs(body);
+
                 RenderJobs(jobs);
                 _statusLabel.Text = $"Total job: {jobs.Count}";
             }
@@ -312,6 +316,184 @@ namespace PrintForm
                     _ = LoadJobsAsync();
                 }
             }
+        }
+
+        private List<PrintJob> DeserializeVisibleJobs(string body)
+        {
+            var jobs = new List<PrintJob>();
+
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                return jobs;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+
+                if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in doc.RootElement.EnumerateArray())
+                    {
+                        AddJobIfVisible(item, jobs);
+                    }
+
+                    return jobs;
+                }
+
+                // Jaga-jaga kalau response server nanti berubah menjadi { items: [...] }
+                if (doc.RootElement.ValueKind == JsonValueKind.Object
+                    && doc.RootElement.TryGetProperty("items", out var items)
+                    && items.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in items.EnumerateArray())
+                    {
+                        AddJobIfVisible(item, jobs);
+                    }
+                }
+            }
+            catch
+            {
+                _statusLabel.Text = "Format data job tidak valid.";
+            }
+
+            return jobs;
+        }
+
+        private void AddJobIfVisible(JsonElement item, List<PrintJob> jobs)
+        {
+            if (ShouldHideJobBySessionStatus(item))
+            {
+                return;
+            }
+
+            var job = item.Deserialize<PrintJob>(_jsonOptions);
+            if (job != null)
+            {
+                jobs.Add(job);
+            }
+        }
+
+        private static bool ShouldHideJobBySessionStatus(JsonElement jobElement)
+        {
+            if (TryReadSessionStatus(jobElement, out var status))
+            {
+                return IsClosedOrExpiredSession(status);
+            }
+
+            return false;
+        }
+
+        private static bool TryReadSessionStatus(JsonElement jobElement, out string status)
+        {
+            status = string.Empty;
+
+            // Kemungkinan response langsung:
+            // { "sessionStatus": "expired" }
+            // { "printSessionStatus": "closed" }
+            // { "session_status": "expired" }
+            var directStatusFields = new[]
+            {
+                "sessionStatus",
+                "printSessionStatus",
+                "session_status",
+                "print_session_status"
+            };
+
+            foreach (var field in directStatusFields)
+            {
+                if (TryReadStringProperty(jobElement, field, out status))
+                {
+                    return true;
+                }
+            }
+
+            // Kemungkinan response nested:
+            // { "session": { "status": "expired" } }
+            // { "printSession": { "status": "closed" } }
+            var sessionObjectFields = new[]
+            {
+                "session",
+                "printSession",
+                "print_session"
+            };
+
+            foreach (var field in sessionObjectFields)
+            {
+                if (!TryReadObjectProperty(jobElement, field, out var sessionElement))
+                {
+                    continue;
+                }
+
+                if (TryReadStringProperty(sessionElement, "status", out status))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsClosedOrExpiredSession(string? status)
+        {
+            return string.Equals(status, "expired", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(status, "closed", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool TryReadStringProperty(JsonElement element, string propertyName, out string value)
+        {
+            value = string.Empty;
+
+            if (element.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            foreach (var property in element.EnumerateObject())
+            {
+                if (!string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (property.Value.ValueKind != JsonValueKind.String)
+                {
+                    return false;
+                }
+
+                value = property.Value.GetString()?.Trim() ?? string.Empty;
+                return value.Length > 0;
+            }
+
+            return false;
+        }
+
+        private static bool TryReadObjectProperty(JsonElement element, string propertyName, out JsonElement value)
+        {
+            value = default;
+
+            if (element.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            foreach (var property in element.EnumerateObject())
+            {
+                if (!string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (property.Value.ValueKind != JsonValueKind.Object)
+                {
+                    return false;
+                }
+
+                value = property.Value;
+                return true;
+            }
+
+            return false;
         }
 
         private void RenderJobs(List<PrintJob> jobs)
