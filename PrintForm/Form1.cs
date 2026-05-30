@@ -44,7 +44,7 @@ namespace PrintForm
 
         private readonly object _jobNotificationLock = new object();
         private readonly HashSet<string> _notifiedRealtimeJobIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        private DateTime _lastJobNotificationAtUtc = DateTime.MinValue;
+        private NotificationOptions _notificationOptions = AppConfig.LoadNotificationOptions();
         private SoundPlayer? _incomingJobSoundPlayer;
         private bool _incomingJobSoundPlayerInitialized;
 
@@ -95,6 +95,7 @@ namespace PrintForm
             comboPrinters.SelectedIndexChanged += comboPrinters_SelectedIndexChanged;
 
             labelServerUrl.Text = $"Server: {_serverBaseUrl}";
+            LoadPersistedAuthState();
             UpdateClientIdLabel();
             UpdateAuthUi();
             RefreshDashboardState();
@@ -161,21 +162,36 @@ namespace PrintForm
 
         private void btnSettings_Click(object sender, EventArgs e)
         {
-            using var settingsForm = new SettingsForm(_serverBaseUrl);
+            using var settingsForm = new SettingsForm(_serverBaseUrl, _notificationOptions);
             var result = settingsForm.ShowDialog(this);
 
-            if (result != DialogResult.OK || string.IsNullOrWhiteSpace(settingsForm.SavedBaseUrl))
+            if (result != DialogResult.OK || !settingsForm.SavedChanges)
             {
                 statusLabel.Text = "Pengaturan tidak diubah.";
                 return;
             }
 
-            statusLabel.Text = "Pengaturan disimpan. Restart aplikasi untuk menerapkan base_url baru.";
-            MessageBox.Show(
-                "Perubahan tersimpan ke printform.ini.\nRestart aplikasi agar koneksi memakai base_url terbaru.",
-                "Pengaturan",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
+            if (settingsForm.SavedNotificationOptions != null)
+            {
+                _notificationOptions = settingsForm.SavedNotificationOptions;
+            }
+            else
+            {
+                _notificationOptions = AppConfig.LoadNotificationOptions();
+            }
+
+            if (settingsForm.BaseUrlChanged)
+            {
+                statusLabel.Text = "Pengaturan disimpan. Restart aplikasi untuk menerapkan Base URL baru.";
+                MessageBox.Show(
+                    "Perubahan tersimpan ke printform.ini.\nRestart aplikasi agar koneksi memakai Base URL terbaru.",
+                    "Pengaturan",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                return;
+            }
+
+            statusLabel.Text = "Pengaturan notifikasi disimpan.";
         }
 
         private async void btnLogin_Click(object sender, EventArgs e)
@@ -2030,41 +2046,45 @@ namespace PrintForm
                 return;
             }
 
-            TryReadRealtimeJobId(root, out var jobId);
-
-            if (ShouldSkipIncomingJobSound(jobId))
+            if (!_notificationOptions.SoundEnabled && !_notificationOptions.DesktopEnabled)
             {
                 return;
             }
 
-            PlayIncomingJobSoundOnUiThread();
+            TryReadRealtimeJobId(root, out var jobId);
+            if (ShouldSkipIncomingJobNotification(jobId))
+            {
+                return;
+            }
+
+            var message = BuildIncomingJobNotificationMessage(root);
+
+            if (_notificationOptions.SoundEnabled)
+            {
+                PlayIncomingJobSoundOnUiThread();
+            }
+
+            if (_notificationOptions.DesktopEnabled)
+            {
+                ShowIncomingJobToastOnUiThread(message);
+            }
         }
 
-        private bool ShouldSkipIncomingJobSound(string? jobId)
+        private bool ShouldSkipIncomingJobNotification(string? jobId)
         {
-            var now = DateTime.UtcNow;
+            if (string.IsNullOrWhiteSpace(jobId))
+            {
+                return false;
+            }
 
             lock (_jobNotificationLock)
             {
-                // Hindari suara beruntun terlalu rapat jika beberapa event masuk hampir bersamaan.
-                if ((now - _lastJobNotificationAtUtc).TotalMilliseconds < 1000)
-                {
-                    return true;
-                }
-
                 if (_notifiedRealtimeJobIds.Count > 500)
                 {
                     _notifiedRealtimeJobIds.Clear();
                 }
 
-                if (!string.IsNullOrWhiteSpace(jobId)
-                    && !_notifiedRealtimeJobIds.Add(jobId))
-                {
-                    return true;
-                }
-
-                _lastJobNotificationAtUtc = now;
-                return false;
+                return !_notifiedRealtimeJobIds.Add(jobId);
             }
         }
 
@@ -2094,6 +2114,62 @@ namespace PrintForm
             }
 
             return false;
+        }
+
+        private static string BuildIncomingJobNotificationMessage(JsonElement root)
+        {
+            if (!root.TryGetProperty("payload", out var payload))
+            {
+                return "Ada tugas cetak baru yang masuk.";
+            }
+
+            if (payload.TryGetProperty("job", out var job))
+            {
+                if (TryReadString(job, "originalName", out var originalName))
+                {
+                    return $"Tugas cetak baru: {originalName}";
+                }
+
+                if (TryReadString(job, "alias", out var alias))
+                {
+                    return $"Tugas cetak baru: {alias}";
+                }
+
+                if (TryReadString(job, "id", out var jobId))
+                {
+                    return $"Tugas cetak baru masuk. ID: {jobId}";
+                }
+            }
+
+            return "Ada tugas cetak baru yang masuk.";
+        }
+
+        private void ShowIncomingJobToastOnUiThread(string message)
+        {
+            if (IsDisposed)
+            {
+                return;
+            }
+
+            if (InvokeRequired)
+            {
+                try
+                {
+                    BeginInvoke(new Action(() => ShowIncomingJobToastOnUiThread(message)));
+                }
+                catch
+                {
+                    // Abaikan jika form sedang ditutup.
+                }
+
+                return;
+            }
+
+            ToastNotificationForm.ShowNotification(
+                this,
+                "Tugas Cetak Baru",
+                message,
+                TimeSpan.FromSeconds(4));
         }
 
         private void PlayIncomingJobSoundOnUiThread()

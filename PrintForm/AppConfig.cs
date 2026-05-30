@@ -71,15 +71,79 @@ namespace PrintForm
 
         public static void SaveServerBaseUrl(string baseUrl)
         {
+            SaveAppSettings(baseUrl, LoadNotificationOptions());
+        }
+
+        public static void SaveAppSettings(string baseUrl, NotificationOptions notificationOptions)
+        {
             var normalized = (baseUrl ?? string.Empty).Trim().Trim('"').TrimEnd('/');
             if (!IsValidBaseUrl(normalized))
             {
                 throw new ArgumentException("Nilai base_url tidak valid.", nameof(baseUrl));
             }
 
+            notificationOptions ??= new NotificationOptions();
+
+            Directory.CreateDirectory(CurrentUserStorageDirectoryPath);
+
             var configPath = GetConfigFilePath();
-            var content = BuildConfigContent(normalized);
+            var content = BuildConfigContent(normalized, notificationOptions);
             File.WriteAllText(configPath, content, new UTF8Encoding(false));
+        }
+
+        public static NotificationOptions LoadNotificationOptions()
+        {
+            TryMigrateLegacyFiles();
+
+            var options = new NotificationOptions();
+            var configPath = GetConfigFilePath();
+
+            try
+            {
+                if (!File.Exists(configPath))
+                {
+                    return options;
+                }
+
+                foreach (var rawLine in File.ReadAllLines(configPath))
+                {
+                    var line = rawLine.Trim();
+                    if (line.Length == 0 || line.StartsWith(";") || line.StartsWith("#") || line.StartsWith("["))
+                    {
+                        continue;
+                    }
+
+                    var separatorIndex = line.IndexOf('=');
+                    if (separatorIndex <= 0)
+                    {
+                        continue;
+                    }
+
+                    var key = line[..separatorIndex].Trim();
+                    var value = line[(separatorIndex + 1)..].Trim().Trim('"');
+
+                    if ((string.Equals(key, "sound_enabled", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(key, "sound_notification_enabled", StringComparison.OrdinalIgnoreCase))
+                        && TryParseConfigBoolean(value, out var soundEnabled))
+                    {
+                        options.SoundEnabled = soundEnabled;
+                    }
+
+                    if ((string.Equals(key, "notification_enabled", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(key, "desktop_enabled", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(key, "desktop_notification_enabled", StringComparison.OrdinalIgnoreCase))
+                        && TryParseConfigBoolean(value, out var desktopEnabled))
+                    {
+                        options.DesktopEnabled = desktopEnabled;
+                    }
+                }
+            }
+            catch
+            {
+                // Pakai default jika gagal membaca konfigurasi.
+            }
+
+            return options;
         }
 
         public static string GetConfigFilePath()
@@ -271,19 +335,25 @@ namespace PrintForm
 
         private static void WriteDefaultConfig(string configPath)
         {
-            var content = BuildConfigContent(DefaultServerBaseUrl);
+            var content = BuildConfigContent(DefaultServerBaseUrl, new NotificationOptions());
 
             File.WriteAllText(configPath, content, new UTF8Encoding(false));
         }
 
-        private static string BuildConfigContent(string baseUrl)
+        private static string BuildConfigContent(string baseUrl, NotificationOptions notificationOptions)
         {
+            notificationOptions ??= new NotificationOptions();
+
             return string.Join(Environment.NewLine, new[]
             {
                 "; PrintForm configuration",
                 "; Ubah base_url sesuai alamat server",
                 "[server]",
                 $"base_url={baseUrl}",
+                string.Empty,
+                "[notification]",
+                $"sound_enabled={ToConfigBoolean(notificationOptions.SoundEnabled)}",
+                $"notification_enabled={ToConfigBoolean(notificationOptions.DesktopEnabled)}",
                 string.Empty
             });
         }
@@ -293,6 +363,31 @@ namespace PrintForm
             var generated = Guid.NewGuid().ToString("D");
             File.WriteAllText(clientIdPath, generated + Environment.NewLine, new UTF8Encoding(false));
             return generated;
+        }
+
+        private static bool TryParseConfigBoolean(string value, out bool result)
+        {
+            var normalized = (value ?? string.Empty).Trim().ToLowerInvariant();
+
+            if (normalized is "1" or "true" or "yes" or "on")
+            {
+                result = true;
+                return true;
+            }
+
+            if (normalized is "0" or "false" or "no" or "off")
+            {
+                result = false;
+                return true;
+            }
+
+            result = false;
+            return false;
+        }
+
+        private static string ToConfigBoolean(bool value)
+        {
+            return value ? "true" : "false";
         }
 
         private static bool IsValidBaseUrl(string value)
