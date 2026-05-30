@@ -47,6 +47,10 @@ namespace PrintForm
         public Form1()
         {
             InitializeComponent();
+
+            HideFooterStatus();
+            BindDashboardStatusToHiddenFooter();
+
             FormClosing += Form1_FormClosing;
         }
 
@@ -84,10 +88,10 @@ namespace PrintForm
             comboPrinters.SelectedIndexChanged += comboPrinters_SelectedIndexChanged;
 
             labelServerUrl.Text = $"Server: {_serverBaseUrl}";
-            LoadPersistedAuthState();
             UpdateClientIdLabel();
             UpdateAuthUi();
-            statusLabel.Text = "Siap. Pilih printer lalu buka Print Job.";
+            RefreshDashboardState();
+            statusLabel.Text = "Mencoba terhubung ke server...";
 
             if (HasSavedAuthState)
             {
@@ -128,6 +132,12 @@ namespace PrintForm
 
         private void btnJobList_Click(object sender, EventArgs e)
         {
+            if (!HasSavedAuthState)
+            {
+                statusLabel.Text = "Hubungkan client dengan akun PrintForm terlebih dahulu.";
+                return;
+            }
+
             if (_jobListForm == null || _jobListForm.IsDisposed)
             {
                 _jobListForm = new JobListForm(
@@ -193,6 +203,7 @@ namespace PrintForm
 
         private void comboPrinters_SelectedIndexChanged(object? sender, EventArgs e)
         {
+            RefreshDashboardState();
             _ = SendHeartbeatAsync();
         }
 
@@ -359,22 +370,149 @@ namespace PrintForm
 
         private void UpdateAuthUi()
         {
-            if (IsAuthenticated)
+            var isPaired = HasSavedAuthState;
+            var displayName = string.IsNullOrWhiteSpace(_authUsername) ? _authUserId : _authUsername;
+
+            labelAuthUser.Text = isPaired
+                ? displayName ?? "Terhubung"
+                : "Belum terhubung";
+
+            labelAuthUser.ForeColor = isPaired
+                ? UiTheme.MutedText
+                : UiTheme.Accent;
+
+            btnLogin.Text = isPaired
+                ? "↯  Lepas Pairing"
+                : "♙  Pair Akun";
+
+            btnLogin.UseAccentFill = !isPaired;
+
+            btnJobList.Enabled = isPaired;
+            btnJobList.UseAccentFill = isPaired;
+
+            alertPairing.Visible = !isPaired;
+
+            RefreshDashboardState();
+        }
+
+        private void HideFooterStatus()
+        {
+            if (statusStrip1 == null || statusStrip1.IsDisposed)
             {
-                var displayName = string.IsNullOrWhiteSpace(_authUsername) ? _authUserId : _authUsername;
-                labelAuthUser.Text = $"Pairing akun aktif: {displayName ?? "terautentikasi"}";
-            }
-            else if (HasSavedAuthState)
-            {
-                var displayName = string.IsNullOrWhiteSpace(_authUsername) ? _authUserId : _authUsername;
-                labelAuthUser.Text = $"Pairing akun tersimpan: {displayName ?? "-"}";
-            }
-            else
-            {
-                labelAuthUser.Text = "Akun: belum dipairing";
+                return;
             }
 
-            btnLogin.Text = HasSavedAuthState ? "Lepas Pairing" : "Pair Akun";
+            statusStrip1.Visible = false;
+            statusStrip1.Height = 0;
+        }
+
+        private void BindDashboardStatusToHiddenFooter()
+        {
+            if (statusLabel == null)
+            {
+                return;
+            }
+
+            statusLabel.TextChanged += (_, _) =>
+            {
+                SetDashboardStatusFromMessage(statusLabel.Text);
+            };
+
+            SetDashboardStatusFromMessage(statusLabel.Text);
+        }
+
+        private void SetDashboardStatusFromMessage(string? message)
+        {
+            var text = (message ?? string.Empty).Trim();
+
+            if (text.Length == 0)
+            {
+                return;
+            }
+
+            if (labelServerState == null || labelServerState.IsDisposed)
+            {
+                return;
+            }
+
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() => SetDashboardStatusFromMessage(text)));
+                return;
+            }
+
+            labelServerState.Text = text;
+            labelServerState.ForeColor = ResolveDashboardStatusColor(text);
+        }
+
+        private static Color ResolveDashboardStatusColor(string text)
+        {
+            if (ContainsAny(text,
+                    "mencoba terhubung",
+                    "memulihkan sesi",
+                    "memverifikasi",
+                    "memperbarui sesi",
+                    "memproses"))
+            {
+                return UiTheme.MutedText;
+            }
+
+            if (ContainsAny(text,
+                    "tidak bisa",
+                    "gagal",
+                    "terputus",
+                    "offline",
+                    "habis",
+                    "wajib",
+                    "dibatalkan",
+                    "ditolak",
+                    "tidak valid",
+                    "tidak ditemukan"))
+            {
+                return UiTheme.Accent;
+            }
+
+            if (ContainsAny(text,
+                    "berhasil",
+                    "terhubung",
+                    "siap",
+                    "selesai",
+                    "ping diterima",
+                    "dikenali server"))
+            {
+                return UiTheme.Success;
+            }
+
+            return UiTheme.MutedText;
+        }
+
+        private static bool ContainsAny(string source, params string[] keywords)
+        {
+            foreach (var keyword in keywords)
+            {
+                if (source.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void RefreshDashboardState()
+        {
+            var printerName = GetSelectedPrinterName();
+            var hasPrinter = !string.IsNullOrWhiteSpace(printerName);
+
+            labelPrinterState.Text = hasPrinter ? "● Siap" : "● Tidak tersedia";
+            labelPrinterState.ForeColor = hasPrinter ? UiTheme.Success : UiTheme.Accent;
+
+            if (!HasSavedAuthState)
+            {
+                btnJobList.Enabled = false;
+                btnJobList.UseAccentFill = false;
+                alertPairing.Visible = true;
+            }
         }
 
         private async Task LoginAsync(string identifier, string password)
@@ -1594,7 +1732,9 @@ namespace PrintForm
         private void UpdateClientIdLabel()
         {
             var value = string.IsNullOrWhiteSpace(_clientId) ? "-" : _clientId;
-            labelClientId.Text = $"Client ID: {value}";
+            labelClientId.Text = value;
+
+            RefreshDashboardState();
         }
 
         private string? GetSelectedPrinterName()
