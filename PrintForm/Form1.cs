@@ -198,24 +198,12 @@ namespace PrintForm
         {
             if (HasSavedAuthState)
             {
-                var confirm = MessageBox.Show(
-                    this,
-                    "Lepas pairing client ini dari akun mitra?",
-                    "Lepas Pairing",
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Question);
-
-                if (confirm != DialogResult.Yes)
-                {
-                    return;
-                }
-
                 await UnpairClientAsync();
                 return;
             }
 
             using var loginForm = new LoginForm(_authUsername);
-            var loginResult = loginForm.ShowDialog(this);
+            var loginResult = loginForm.ShowPairingDialog(this);
             if (loginResult != DialogResult.OK)
             {
                 return;
@@ -699,87 +687,9 @@ namespace PrintForm
 
         private string? PromptPinForUnpair()
         {
-            using var dialog = new Form
-            {
-                Text = "Verifikasi PIN",
-                FormBorderStyle = FormBorderStyle.FixedDialog,
-                StartPosition = FormStartPosition.CenterParent,
-                MaximizeBox = false,
-                MinimizeBox = false,
-                ShowInTaskbar = false,
-                ClientSize = new Size(360, 170)
-            };
-
-            var infoLabel = new Label
-            {
-                AutoSize = true,
-                Location = new Point(18, 16),
-                Text = "Masukkan PIN akun untuk Lepas Pairing."
-            };
-
-            var pinLabel = new Label
-            {
-                AutoSize = true,
-                Location = new Point(18, 52),
-                Text = "PIN"
-            };
-
-            var pinTextBox = new TextBox
-            {
-                Location = new Point(80, 48),
-                Size = new Size(250, 27),
-                PasswordChar = '*',
-                MaxLength = 8
-            };
-
-            var okButton = new Button
-            {
-                Text = "Verifikasi",
-                Location = new Point(160, 106),
-                Size = new Size(82, 32),
-                DialogResult = DialogResult.None
-            };
-
-            var cancelButton = new Button
-            {
-                Text = "Batal",
-                Location = new Point(248, 106),
-                Size = new Size(82, 32),
-                DialogResult = DialogResult.Cancel
-            };
-
-            okButton.Click += (_, _) =>
-            {
-                var pin = (pinTextBox.Text ?? string.Empty).Trim();
-                if (pin.Length < 4 || pin.Length > 8 || !pin.All(char.IsDigit))
-                {
-                    MessageBox.Show(
-                        dialog,
-                        "PIN harus 4-8 digit angka.",
-                        "Validasi PIN",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Warning);
-                    pinTextBox.Focus();
-                    return;
-                }
-
-                dialog.DialogResult = DialogResult.OK;
-                dialog.Close();
-            };
-
-            dialog.AcceptButton = okButton;
-            dialog.CancelButton = cancelButton;
-
-            dialog.Controls.Add(infoLabel);
-            dialog.Controls.Add(pinLabel);
-            dialog.Controls.Add(pinTextBox);
-            dialog.Controls.Add(okButton);
-            dialog.Controls.Add(cancelButton);
-
-            pinTextBox.Focus();
-
-            return dialog.ShowDialog(this) == DialogResult.OK
-                ? pinTextBox.Text.Trim()
+            using var dialog = new UnpairPinDialog();
+            return dialog.ShowPairingDialog(this) == DialogResult.OK
+                ? dialog.Pin
                 : null;
         }
 
