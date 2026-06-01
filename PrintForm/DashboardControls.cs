@@ -27,6 +27,7 @@ namespace PrintForm
         Printer,
         Document,
         Settings,
+        Info,
         LinkOff,
         Bars,
         Lightning
@@ -92,6 +93,7 @@ namespace PrintForm
                 IconKind.Printer => "printer.png",
                 IconKind.Document => "file-text.png",
                 IconKind.Settings => "settings.png",
+                IconKind.Info => "info.png",
                 IconKind.LinkOff => "unlink.png",
                 IconKind.Bars => "chart-bars.png",
                 IconKind.Lightning => "bolt.png",
@@ -228,6 +230,10 @@ namespace PrintForm
 
                 case IconKind.Settings:
                     DrawSettings(g, pen, x, y, w, h);
+                    break;
+
+                case IconKind.Info:
+                    DrawInfo(g, pen, brush, x, y, w, h);
                     break;
 
                 case IconKind.LinkOff:
@@ -372,6 +378,18 @@ namespace PrintForm
             };
 
             g.FillPolygon(brush, points);
+        }
+
+        private static void DrawInfo(Graphics g, Pen pen, Brush brush, int x, int y, int w, int h)
+        {
+            var size = Math.Min(w, h) * 3 / 4;
+            var left = x + (w - size) / 2;
+            var top = y + (h - size) / 2;
+            g.DrawEllipse(pen, left, top, size, size);
+
+            var cx = x + w / 2;
+            g.FillEllipse(brush, cx - 2, top + size / 4, 4, 4);
+            g.DrawLine(pen, cx, top + size / 2, cx, top + size * 3 / 4);
         }
     }
 
@@ -599,8 +617,9 @@ namespace PrintForm
         private void DrawButtonContent(Graphics graphics, Rectangle rect, Color contentColor)
         {
             var text = Text ?? string.Empty;
+            var hasText = !string.IsNullOrWhiteSpace(text);
             var iconSize = IconKind == IconKind.None ? 0 : 20;
-            var gap = IconKind == IconKind.None ? 0 : 10;
+            var gap = IconKind == IconKind.None || !hasText ? 0 : 10;
 
             var textSize = TextRenderer.MeasureText(
                 graphics,
@@ -618,6 +637,11 @@ namespace PrintForm
                 var iconRect = new Rectangle(startX, centerY - iconSize / 2, iconSize, iconSize);
                 IconAssets.DrawIcon(graphics, IconKind, iconRect, contentColor, 2.1F);
                 startX += iconSize + gap;
+            }
+
+            if (!hasText)
+            {
+                return;
             }
 
             var textRect = new Rectangle(

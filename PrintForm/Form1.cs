@@ -196,6 +196,12 @@ namespace PrintForm
                 : "Pengaturan disimpan.";
         }
 
+        private void btnInfo_Click(object? sender, EventArgs e)
+        {
+            using var aboutForm = new AboutForm(_clientId, _serverBaseUrl);
+            aboutForm.ShowDialog(this);
+        }
+
         private async void btnLogin_Click(object sender, EventArgs e)
         {
             if (HasSavedAuthState)

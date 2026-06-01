@@ -1,11 +1,11 @@
-; Inno Setup script for PrintForm
+; Inno Setup script for PrintOrder
 ; Build sequence from repository root:
 ;   dotnet publish .\PrintForm\PrintForm.csproj -c Release -f net8.0-windows -o .\artifacts\publish
 ;   & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" .\PrintForm.iss
 
-#define MyAppName "PrintForm"
-#define MyAppVersion "1.2.2"
-#define MyAppPublisher "PrintForm"
+#define MyAppName "PrintOrder"
+#define MyAppVersion "1.3.0"
+#define MyAppPublisher "PrintOrder"
 #define MyAppExeName "PrintForm.exe"
 #define MyPublishDir "artifacts\publish"
 
@@ -13,7 +13,11 @@
 AppId={{95E634E9-3B68-45A8-BF20-43A26A15AD9A}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
+AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
+VersionInfoVersion={#MyAppVersion}
+VersionInfoProductName={#MyAppName}
+VersionInfoProductVersion={#MyAppVersion}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 OutputDir=artifacts\installer

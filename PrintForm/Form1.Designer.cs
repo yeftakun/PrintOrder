@@ -32,6 +32,7 @@ namespace PrintForm
 
             comboPrinters = new ComboBox();
             btnJobList = new RoundedButton();
+            btnInfo = new RoundedButton();
             btnSettings = new RoundedButton();
             btnLogin = new RoundedButton();
 
@@ -150,6 +151,7 @@ namespace PrintForm
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = UiTheme.PageBackground
             };
+            var dashboardToolTip = new ToolTip(components);
 
             dashboardContent.Location = new Point(0, 0);
             dashboardContent.Size = new Size(1020, 450);
@@ -347,6 +349,16 @@ namespace PrintForm
             btnSettings.UseAccentFill = false;
             btnSettings.Click += btnSettings_Click;
 
+            btnInfo.Location = new Point(624, 30);
+            btnInfo.Name = "btnInfo";
+            btnInfo.Size = new Size(44, 44);
+            btnInfo.TabIndex = 3;
+            btnInfo.Text = string.Empty;
+            btnInfo.IconKind = IconKind.Info;
+            btnInfo.UseAccentFill = false;
+            btnInfo.Click += btnInfo_Click;
+            dashboardToolTip.SetToolTip(btnInfo, "Tentang PrintOrder");
+
             btnLogin.Location = new Point(680, 30);
             btnLogin.Name = "btnLogin";
             btnLogin.Size = new Size(158, 44);
@@ -357,6 +369,7 @@ namespace PrintForm
             btnLogin.Click += btnLogin_Click;
 
             dashboardContent.Controls.Add(btnJobList);
+            dashboardHeaderContent.Controls.Add(btnInfo);
             dashboardHeaderContent.Controls.Add(btnLogin);
             dashboardHeaderContent.Controls.Add(btnSettings);
 
@@ -514,6 +527,7 @@ namespace PrintForm
 
         private ComboBox comboPrinters;
         private RoundedButton btnJobList;
+        private RoundedButton btnInfo;
         private RoundedButton btnSettings;
         private RoundedButton btnLogin;
 
