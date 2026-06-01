@@ -1235,7 +1235,7 @@ namespace PrintOrder
                     return;
                 }
 
-                var printed = await PrintNonImageAsync(downloadPath);
+                var printed = await PrintNonImageAsync(downloadPath, job.PrintConfig);
                 TryDeleteTempFile(downloadPath);
                 _activeJobTempPath = null;
                 await UpdateJobStatusAsync(job.Id, printed ? "done" : "failed");
@@ -1363,14 +1363,26 @@ namespace PrintOrder
             return filePath;
         }
 
-        private async System.Threading.Tasks.Task<bool> PrintNonImageAsync(string filePath)
+        private async System.Threading.Tasks.Task<bool> PrintNonImageAsync(string filePath, PrintConfig? printConfig)
         {
             var ext = Path.GetExtension(filePath).ToLowerInvariant();
             if (ext == ".pdf")
             {
-                if (await TryPrintPdfWithSumatraAsync(filePath))
+                if (!TryNormalizePdfPageRange(printConfig?.PageRange, out var pageRange, out var pageRangeError))
+                {
+                    statusLabel.Text = pageRangeError;
+                    return false;
+                }
+
+                if (await TryPrintPdfWithSumatraAsync(filePath, pageRange))
                 {
                     return true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(pageRange))
+                {
+                    statusLabel.Text = "Gagal mencetak PDF sesuai rentang halaman. Install SumatraPDF agar rentang halaman didukung.";
+                    return false;
                 }
 
                 if (await TryPrintPdfWithEdgeAsync(filePath, headless: true))
@@ -1539,7 +1551,7 @@ namespace PrintOrder
             }
         }
 
-        private async System.Threading.Tasks.Task<bool> TryPrintPdfWithSumatraAsync(string filePath)
+        private async System.Threading.Tasks.Task<bool> TryPrintPdfWithSumatraAsync(string filePath, string? pageRange)
         {
             var printerName = GetSelectedPrinterName();
             if (string.IsNullOrWhiteSpace(printerName))
@@ -1555,10 +1567,15 @@ namespace PrintOrder
 
             try
             {
+                var printSettings = BuildSumatraPrintSettings(pageRange);
+                var printSettingsArg = string.IsNullOrWhiteSpace(printSettings)
+                    ? string.Empty
+                    : $"-print-settings \"{printSettings}\" ";
+
                 var psi = new ProcessStartInfo
                 {
                     FileName = sumatraPath,
-                    Arguments = $"-print-to \"{printerName}\" -silent -exit-on-print \"{filePath}\"",
+                    Arguments = $"{printSettingsArg}-print-to \"{printerName}\" -silent -exit-on-print \"{filePath}\"",
                     CreateNoWindow = true,
                     UseShellExecute = false
                 };
@@ -1576,6 +1593,68 @@ namespace PrintOrder
             {
                 return false;
             }
+        }
+
+        private static string BuildSumatraPrintSettings(string? pageRange)
+        {
+            return string.IsNullOrWhiteSpace(pageRange)
+                ? string.Empty
+                : pageRange;
+        }
+
+        private static bool TryNormalizePdfPageRange(string? rawPageRange, out string pageRange, out string errorMessage)
+        {
+            pageRange = string.Empty;
+            errorMessage = string.Empty;
+
+            var raw = (rawPageRange ?? string.Empty).Trim();
+            if (raw.Length == 0
+                || string.Equals(raw, "all", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(raw, "semua", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(raw, "semua halaman", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var tokens = raw
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(NormalizePdfPageRangeToken)
+                .ToArray();
+
+            if (tokens.Length == 0 || tokens.Any(token => token.Length == 0))
+            {
+                errorMessage = "Rentang halaman tidak valid. Contoh format: 1, 3-5.";
+                return false;
+            }
+
+            pageRange = string.Join(",", tokens);
+            return true;
+        }
+
+        private static string NormalizePdfPageRangeToken(string token)
+        {
+            var normalized = token.Replace(" ", string.Empty);
+            if (int.TryParse(normalized, out var page) && page > 0)
+            {
+                return page.ToString();
+            }
+
+            var parts = normalized.Split('-', StringSplitOptions.TrimEntries);
+            if (parts.Length != 2)
+            {
+                return string.Empty;
+            }
+
+            if (!int.TryParse(parts[0], out var startPage)
+                || !int.TryParse(parts[1], out var endPage)
+                || startPage <= 0
+                || endPage <= 0
+                || startPage > endPage)
+            {
+                return string.Empty;
+            }
+
+            return $"{startPage}-{endPage}";
         }
 
         private string? ResolveEdgePath()

@@ -52,6 +52,7 @@ base_url=http://127.0.0.1:3000
 - Jobs are downloaded from the server to a temp file, printed locally, then the temp file is deleted.
 - Images (JPG/PNG/BMP) are printed via `PrintDocument`.
 - PDF and other file types are printed via SumatraPDF (preferred) or Edge.
+- PDF page ranges such as `1, 3-5` are sent through SumatraPDF; Edge fallback is used only for full-page PDF printing.
 - If the selected printer is offline, the job is set to `pending` (not sent to the spooler).
 
 ## Job status notes
