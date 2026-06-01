@@ -1559,7 +1559,7 @@ namespace PrintOrder
                 return false;
             }
 
-            var sumatraPath = ResolveSumatraPath();
+            var sumatraPath = SumatraPdfSupport.ResolveExecutablePath();
             if (string.IsNullOrWhiteSpace(sumatraPath))
             {
                 return false;
@@ -1677,30 +1677,6 @@ namespace PrintOrder
             }
 
             return "msedge.exe";
-        }
-
-        private string? ResolveSumatraPath()
-        {
-            var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-            var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
-            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-
-            var candidates = new[]
-            {
-                Path.Combine(programFilesX86, "SumatraPDF", "SumatraPDF.exe"),
-                Path.Combine(programFiles, "SumatraPDF", "SumatraPDF.exe"),
-                Path.Combine(localAppData, "SumatraPDF", "SumatraPDF.exe")
-            };
-
-            foreach (var candidate in candidates)
-            {
-                if (File.Exists(candidate))
-                {
-                    return candidate;
-                }
-            }
-
-            return null;
         }
 
         private void TryDeleteTempFile(string path)

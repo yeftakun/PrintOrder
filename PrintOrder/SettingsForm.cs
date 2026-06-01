@@ -19,9 +19,13 @@ namespace PrintOrder
         private readonly SettingsToggleSwitch _autoStartSwitch = new SettingsToggleSwitch();
         private readonly RoundedButton _testConnectionButton = new RoundedButton();
         private readonly RoundedButton _openConfigFolderButton = new RoundedButton();
+        private readonly RoundedButton _refreshPdfEngineButton = new RoundedButton();
+        private readonly RoundedButton _downloadPdfEngineButton = new RoundedButton();
         private readonly RoundedButton _saveButton = new RoundedButton();
         private readonly RoundedButton _cancelButton = new RoundedButton();
         private readonly Label _testResultLabel = new Label();
+        private readonly Label _pdfEngineStatusLabel = new Label();
+        private readonly Label _pdfEnginePathLabel = new Label();
 
         public string? SavedBaseUrl { get; private set; }
         public NotificationOptions? SavedNotificationOptions { get; private set; }
@@ -43,7 +47,7 @@ namespace PrintOrder
         {
             AutoScaleMode = AutoScaleMode.Dpi;
             BackColor = UiTheme.PageBackground;
-            ClientSize = new Size(720, 560);
+            ClientSize = new Size(720, 660);
             Font = new Font("Segoe UI", 10F, FontStyle.Regular);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -57,20 +61,22 @@ namespace PrintOrder
                 Dock = DockStyle.Fill,
                 BackColor = UiTheme.PageBackground,
                 ColumnCount = 1,
-                RowCount = 5,
+                RowCount = 6,
                 Padding = new Padding(24, 22, 24, 18)
             };
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 160));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 126));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 112));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 110));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             root.Controls.Add(BuildHeader(), 0, 0);
             root.Controls.Add(BuildServerSection(), 0, 1);
             root.Controls.Add(BuildNotificationSection(), 0, 2);
-            root.Controls.Add(BuildSystemSection(), 0, 3);
-            root.Controls.Add(BuildFooter(), 0, 4);
+            root.Controls.Add(BuildPdfEngineSection(), 0, 3);
+            root.Controls.Add(BuildSystemSection(), 0, 4);
+            root.Controls.Add(BuildFooter(), 0, 5);
 
             Controls.Add(root);
 
@@ -182,6 +188,42 @@ namespace PrintOrder
             };
             section.Controls.Add(hint);
 
+            return section;
+        }
+
+        private Control BuildPdfEngineSection()
+        {
+            var section = CreateSection();
+            section.Controls.Add(CreateSectionTitle("PDF Engine", IconKind.Document));
+
+            _pdfEngineStatusLabel.AutoEllipsis = true;
+            _pdfEngineStatusLabel.Font = new Font("Segoe UI", 10.2F, FontStyle.Bold);
+            _pdfEngineStatusLabel.Location = new Point(20, 48);
+            _pdfEngineStatusLabel.Size = new Size(382, 26);
+            _pdfEngineStatusLabel.TextAlign = ContentAlignment.MiddleLeft;
+            section.Controls.Add(_pdfEngineStatusLabel);
+
+            _pdfEnginePathLabel.AutoEllipsis = true;
+            _pdfEnginePathLabel.Font = new Font("Segoe UI", 8.9F, FontStyle.Regular);
+            _pdfEnginePathLabel.ForeColor = UiTheme.MutedText;
+            _pdfEnginePathLabel.Location = new Point(20, 74);
+            _pdfEnginePathLabel.Size = new Size(382, 22);
+            _pdfEnginePathLabel.TextAlign = ContentAlignment.MiddleLeft;
+            section.Controls.Add(_pdfEnginePathLabel);
+
+            _refreshPdfEngineButton.Text = "Deteksi Ulang";
+            _refreshPdfEngineButton.UseAccentFill = false;
+            _refreshPdfEngineButton.SetBounds(422, 50, 108, 40);
+            _refreshPdfEngineButton.Click += (_, _) => RefreshPdfEngineStatus();
+            section.Controls.Add(_refreshPdfEngineButton);
+
+            _downloadPdfEngineButton.Text = "Download";
+            _downloadPdfEngineButton.UseAccentFill = false;
+            _downloadPdfEngineButton.SetBounds(542, 50, 102, 40);
+            _downloadPdfEngineButton.Click += (_, _) => OpenSumatraPdfDownload();
+            section.Controls.Add(_downloadPdfEngineButton);
+
+            RefreshPdfEngineStatus();
             return section;
         }
 
@@ -402,6 +444,39 @@ namespace PrintOrder
         {
             _testResultLabel.ForeColor = color;
             _testResultLabel.Text = message;
+        }
+
+        private void RefreshPdfEngineStatus()
+        {
+            var installation = SumatraPdfSupport.Detect();
+            if (installation.IsAvailable)
+            {
+                _pdfEngineStatusLabel.ForeColor = UiTheme.Success;
+                _pdfEngineStatusLabel.Text = "SumatraPDF ditemukan";
+                _pdfEnginePathLabel.Text = installation.ExecutablePath ?? string.Empty;
+                return;
+            }
+
+            _pdfEngineStatusLabel.ForeColor = JobVisuals.Warning;
+            _pdfEngineStatusLabel.Text = "SumatraPDF belum ditemukan";
+            _pdfEnginePathLabel.Text = "Diperlukan untuk PDF dengan rentang halaman seperti 1, 3-5.";
+        }
+
+        private void OpenSumatraPdfDownload()
+        {
+            try
+            {
+                SumatraPdfSupport.OpenDownloadPage();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    this,
+                    $"Tidak bisa membuka halaman download: {ex.Message}",
+                    "Download SumatraPDF",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
         }
 
         private static RoundedPanel CreateSection()

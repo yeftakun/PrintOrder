@@ -37,6 +37,8 @@ dotnet publish .\PrintOrder\PrintOrder.csproj -c Release -f net8.0-windows -o .\
 
 build installer (inno setup)
 
+Optional: to bundle SumatraPDF as a prerequisite, put the official installer at `installer\SumatraPDF-Installer.exe` before running Inno Setup.
+
 ```powershell
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" .\PrintOrder.iss
 ```

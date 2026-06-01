@@ -11,6 +11,7 @@ WinForms client for receiving and printing jobs from the PrintOrder server.
 Optional (for better PDF printing):
 
 - SumatraPDF (recommended). If not installed, the client falls back to Microsoft Edge.
+- SumatraPDF is required for PDF page-range printing such as `1, 3-5`.
 
 ## Run
 
