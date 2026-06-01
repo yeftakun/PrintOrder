@@ -21,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="Assets\logo_printorder.ico" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Assets\logo_printorder.png" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Assets\Icons\*.png" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Assets\Sounds\*.wav" CopyToOutputDirectory="PreserveNewest" />

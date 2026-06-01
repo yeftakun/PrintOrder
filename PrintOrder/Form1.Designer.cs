@@ -17,6 +17,12 @@ namespace PrintOrder
                     _logoImage.Dispose();
                     _logoImage = null;
                 }
+
+                if (_applicationIcon != null)
+                {
+                    _applicationIcon.Dispose();
+                    _applicationIcon = null;
+                }
             }
 
             base.Dispose(disposing);

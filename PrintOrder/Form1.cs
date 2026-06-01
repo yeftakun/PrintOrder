@@ -41,6 +41,10 @@ namespace PrintOrder
         private ClientWebSocket? _realtimeSocket;
         private CancellationTokenSource? _realtimeCts;
         private Task? _realtimeWorker;
+        private NotifyIcon? _trayIcon;
+        private ContextMenuStrip? _trayMenu;
+        private Icon? _applicationIcon;
+        private bool _allowApplicationExit;
 
         private readonly object _jobNotificationLock = new object();
         private readonly HashSet<string> _notifiedRealtimeJobIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -57,6 +61,8 @@ namespace PrintOrder
 
             HideFooterStatus();
             BindDashboardStatusToHiddenFooter();
+            InitializeApplicationIcon();
+            InitializeTrayIcon();
 
             FormClosing += Form1_FormClosing;
         }
@@ -1737,6 +1743,129 @@ namespace PrintOrder
             RefreshDashboardState();
         }
 
+        private void InitializeApplicationIcon()
+        {
+            _applicationIcon = TryLoadApplicationIcon();
+            if (_applicationIcon != null)
+            {
+                Icon = _applicationIcon;
+            }
+        }
+
+        private void InitializeTrayIcon()
+        {
+            _trayMenu = new ContextMenuStrip(components);
+            _trayMenu.Items.Add("Dashboard", null, (_, _) => ShowDashboardFromTray());
+            _trayMenu.Items.Add(new ToolStripSeparator());
+            _trayMenu.Items.Add("Close", null, (_, _) => RequestApplicationExit());
+
+            _trayIcon = new NotifyIcon(components)
+            {
+                ContextMenuStrip = _trayMenu,
+                Icon = _applicationIcon ?? SystemIcons.Application,
+                Text = "PrintOrder",
+                Visible = true
+            };
+
+            _trayIcon.MouseDoubleClick += (_, e) =>
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    ShowDashboardFromTray();
+                }
+            };
+        }
+
+        private void ShowDashboardFromTray()
+        {
+            if (IsDisposed)
+            {
+                return;
+            }
+
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(ShowDashboardFromTray));
+                return;
+            }
+
+            ShowInTaskbar = true;
+            Show();
+
+            if (WindowState == FormWindowState.Minimized)
+            {
+                WindowState = FormWindowState.Normal;
+            }
+
+            BringToFront();
+            Activate();
+        }
+
+        private void HideDashboardToTray()
+        {
+            Hide();
+            ShowInTaskbar = false;
+            statusLabel.Text = "Dashboard ditutup. PrintOrder tetap berjalan di system tray.";
+        }
+
+        private void RequestApplicationExit()
+        {
+            if (!ConfirmApplicationExit())
+            {
+                return;
+            }
+
+            _allowApplicationExit = true;
+            Close();
+        }
+
+        private bool ConfirmApplicationExit()
+        {
+            var result = MessageBox.Show(
+                "Tutup PrintOrder?\n\nAplikasi akan berhenti menerima tugas cetak sampai dibuka kembali.",
+                "Konfirmasi Keluar",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question,
+                MessageBoxDefaultButton.Button2);
+
+            return result == DialogResult.Yes;
+        }
+
+        private static Icon? TryLoadApplicationIcon()
+        {
+            var candidates = new[]
+            {
+                Path.Combine(AppContext.BaseDirectory, "Assets", "logo_printorder.ico"),
+                Path.Combine(AppContext.BaseDirectory, "logo_printorder.ico")
+            };
+
+            foreach (var path in candidates)
+            {
+                if (!File.Exists(path))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    return new Icon(path);
+                }
+                catch
+                {
+                    // Icon optional untuk runtime; executable tetap punya embedded icon.
+                }
+            }
+
+            try
+            {
+                return Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private string? GetSelectedPrinterName()
         {
             var selected = comboPrinters.SelectedItem?.ToString();
@@ -1758,6 +1887,18 @@ namespace PrintOrder
 
         private void Form1_FormClosing(object? sender, FormClosingEventArgs e)
         {
+            if (!_allowApplicationExit && e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                HideDashboardToTray();
+                return;
+            }
+
+            if (_trayIcon != null)
+            {
+                _trayIcon.Visible = false;
+            }
+
             StopTimers();
             StopRealtime();
 
