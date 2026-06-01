@@ -1,4 +1,4 @@
-# PrintForm
+# PrintOrder
 
 ## Pairing model (desktop client)
 
@@ -11,38 +11,38 @@
 ## Lokasi file lokal
 
 - Konfigurasi dan state auth disimpan per-user:
-  - `%LocalAppData%\\PrintForm\\printform.ini`
-  - `%LocalAppData%\\PrintForm\\printform.auth.json`
+  - `%LocalAppData%\\PrintOrder\\printorder.ini`
+  - `%LocalAppData%\\PrintOrder\\printorder.auth.json`
 - ID client disimpan machine-level (shared antar user Windows):
-  - `%ProgramData%\\PrintForm\\printform.client-id`
+  - `%ProgramData%\\PrintOrder\\printorder.client-id`
 - Migrasi otomatis saat startup:
-  - `printform.ini` dan `printform.auth.json`: dari folder executable lama ke `%LocalAppData%`.
-  - `printform.client-id`: prioritas dari `%LocalAppData%` lama, fallback dari folder executable lama, lalu disalin ke `%ProgramData%`.
+  - `printorder.ini` dan `printorder.auth.json`: dari lokasi lama ke `%LocalAppData%`.
+  - `printorder.client-id`: prioritas dari lokasi machine-level lama, lokasi user lama, fallback dari folder executable lama, lalu disalin ke `%ProgramData%`.
 
 build & run
 
 ```powershell
-dotnet build .\PrintForm\PrintForm.csproj -c Release
+dotnet build .\PrintOrder\PrintOrder.csproj -c Release
 ```
 
 ```powershell
-dotnet run --project .\PrintForm\PrintForm.csproj
+dotnet run --project .\PrintOrder\PrintOrder.csproj
 ```
 
 release publish (target for installer)
 
 ```powershell
-dotnet publish .\PrintForm\PrintForm.csproj -c Release -f net8.0-windows -o .\artifacts\publish
+dotnet publish .\PrintOrder\PrintOrder.csproj -c Release -f net8.0-windows -o .\artifacts\publish
 ```
 
 build installer (inno setup)
 
 ```powershell
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" .\PrintForm.iss
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" .\PrintOrder.iss
 ```
 
 installer output
 
 ```text
-.\artifacts\installer\PrintForm-Setup-1.0.4.exe
+.\artifacts\installer\PrintOrder-Setup-1.3.0.exe
 ```

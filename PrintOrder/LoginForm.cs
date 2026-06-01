@@ -4,7 +4,7 @@ using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Windows.Forms;
 
-namespace PrintForm
+namespace PrintOrder
 {
     internal sealed class LoginForm : PairingDialogBase
     {

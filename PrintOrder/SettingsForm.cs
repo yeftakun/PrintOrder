@@ -5,7 +5,7 @@ using System.Net.Http;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace PrintForm
+namespace PrintOrder
 {
     internal sealed class SettingsForm : Form
     {

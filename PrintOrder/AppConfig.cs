@@ -4,19 +4,25 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 
-namespace PrintForm
+namespace PrintOrder
 {
     internal static class AppConfig
     {
         private const string DefaultServerBaseUrl = "http://127.0.0.1:3000";
-        private const string StorageFolderName = "PrintForm";
-        private const string ConfigFileName = "printform.ini";
-        private const string ClientIdFileName = "printform.client-id";
-        private const string AuthStateFileName = "printform.auth.json";
+        private const string StorageFolderName = "PrintOrder";
+        private const string ConfigFileName = "printorder.ini";
+        private const string ClientIdFileName = "printorder.client-id";
+        private const string AuthStateFileName = "printorder.auth.json";
+        private const string PreviousStorageFolderName = "Print" + "Form";
+        private const string PreviousConfigFileName = "print" + "form.ini";
+        private const string PreviousClientIdFileName = "print" + "form.client-id";
+        private const string PreviousAuthStateFileName = "print" + "form.auth.json";
 
         private static readonly string LegacyStorageDirectoryPath = AppContext.BaseDirectory;
         private static readonly string CurrentUserStorageDirectoryPath = ResolveUserStorageDirectoryPath();
         private static readonly string CurrentMachineStorageDirectoryPath = ResolveMachineStorageDirectoryPath();
+        private static readonly string PreviousUserStorageDirectoryPath = ResolvePreviousUserStorageDirectoryPath();
+        private static readonly string PreviousMachineStorageDirectoryPath = ResolvePreviousMachineStorageDirectoryPath();
 
         public static string StorageDirectoryPath => CurrentUserStorageDirectoryPath;
         public static string ClientIdStorageDirectoryPath => CurrentMachineStorageDirectoryPath;
@@ -458,17 +464,67 @@ namespace PrintForm
         {
             TryMigrateFile(
                 GetConfigFilePath(),
-                Path.Combine(LegacyStorageDirectoryPath, ConfigFileName));
+                Path.Combine(LegacyStorageDirectoryPath, ConfigFileName),
+                Path.Combine(LegacyStorageDirectoryPath, PreviousConfigFileName),
+                CombineStoragePath(PreviousUserStorageDirectoryPath, PreviousConfigFileName));
 
             TryMigrateFile(
                 GetAuthStateFilePath(),
-                Path.Combine(LegacyStorageDirectoryPath, AuthStateFileName));
+                Path.Combine(LegacyStorageDirectoryPath, AuthStateFileName),
+                Path.Combine(LegacyStorageDirectoryPath, PreviousAuthStateFileName),
+                CombineStoragePath(PreviousUserStorageDirectoryPath, PreviousAuthStateFileName));
 
-            // Prioritas migrasi client-id: lokasi user lama lalu lokasi executable lama.
+            // Prioritas migrasi client-id: lokasi mesin, lokasi user, lalu lokasi executable lama.
             TryMigrateFile(
                 GetClientIdFilePath(),
+                CombineStoragePath(PreviousMachineStorageDirectoryPath, PreviousClientIdFileName),
+                CombineStoragePath(PreviousUserStorageDirectoryPath, PreviousClientIdFileName),
+                Path.Combine(LegacyStorageDirectoryPath, PreviousClientIdFileName),
                 Path.Combine(CurrentUserStorageDirectoryPath, ClientIdFileName),
                 Path.Combine(LegacyStorageDirectoryPath, ClientIdFileName));
+        }
+
+        private static string CombineStoragePath(string directoryPath, string fileName)
+        {
+            return string.IsNullOrWhiteSpace(directoryPath)
+                ? string.Empty
+                : Path.Combine(directoryPath, fileName);
+        }
+
+        private static string ResolvePreviousUserStorageDirectoryPath()
+        {
+            try
+            {
+                var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                if (!string.IsNullOrWhiteSpace(localAppData))
+                {
+                    return Path.Combine(localAppData, PreviousStorageFolderName);
+                }
+            }
+            catch
+            {
+                // Abaikan lokasi lama jika tidak bisa dibaca.
+            }
+
+            return string.Empty;
+        }
+
+        private static string ResolvePreviousMachineStorageDirectoryPath()
+        {
+            try
+            {
+                var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+                if (!string.IsNullOrWhiteSpace(programData))
+                {
+                    return Path.Combine(programData, PreviousStorageFolderName);
+                }
+            }
+            catch
+            {
+                // Abaikan lokasi lama jika tidak bisa dibaca.
+            }
+
+            return string.Empty;
         }
 
         private static void TryMigrateFile(string destinationPath, params string[] sourcePaths)

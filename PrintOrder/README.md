@@ -15,15 +15,15 @@ Optional (for better PDF printing):
 ## Run
 
 ```bash
-dotnet run --project .\PrintForm\PrintForm.csproj
+dotnet run --project .\PrintOrder\PrintOrder.csproj
 ```
 
-Saat startup, jika `printform.ini` atau `printform.client-id` belum ada, aplikasi akan menampilkan konfirmasi pembuatan file.
+Saat startup, jika `printorder.ini` atau `printorder.client-id` belum ada, aplikasi akan menampilkan konfirmasi pembuatan file.
 Jika disetujui, aplikasi akan meminta izin `Run as administrator` agar file dapat dibuat (terutama bila aplikasi terpasang di folder yang butuh hak admin), lalu menampilkan notifikasi file apa saja yang berhasil dibuat.
 
-Lokasi file tetap berada di folder executable (untuk `dotnet run`, biasanya di `PrintForm/bin/...`).
+Konfigurasi dan state auth disimpan di `%LocalAppData%\PrintOrder`, sedangkan ID client disimpan di `%ProgramData%\PrintOrder` agar stabil antar user Windows.
 
-Untuk mengubah `base_url`, gunakan tombol `Pengaturan` di aplikasi. Saat menekan `Simpan`, aplikasi akan meminta izin administrator (UAC) untuk menyimpan `printform.ini`.
+Untuk mengubah `base_url`, gunakan tombol `Pengaturan` di aplikasi. Saat menekan `Simpan`, aplikasi akan meminta izin administrator (UAC) untuk menyimpan `printorder.ini`.
 
 Set server URL in this file:
 
@@ -39,8 +39,8 @@ base_url=http://127.0.0.1:3000
 - Connects to server realtime WebSocket channel (`ws://.../ws`) and subscribes to `jobs`, `clients`, `sessions` events.
 - On websocket connect, client immediately sends presence identity (`action=identify`, `clientId`, `role=client`) so server can mark online/offline faster.
 - Realtime job events trigger immediate Job List refresh; periodic polling remains as fallback.
-- Uses a persistent client GUID stored in `printform.client-id` next to the executable.
-- Menyediakan window `Pengaturan` untuk edit nilai `[server] -> base_url` pada `printform.ini`.
+- Uses a persistent client GUID stored in `printorder.client-id` next to the executable.
+- Menyediakan window `Pengaturan` untuk edit nilai `[server] -> base_url` pada `printorder.ini`.
 - Shows a Job List window:
   - `Print` for jobs with status `ready`
   - `Retry` for jobs with status `pending`
@@ -66,10 +66,10 @@ base_url=http://127.0.0.1:3000
 
 ## Client identity notes
 
-- The client reuses the same GUID on every restart (`printform.client-id`).
+- The client reuses the same GUID on every restart (`printorder.client-id`).
 - The app does not call unregister on close; server presence should be derived from heartbeat timeout (`last_seen_at` + TTL).
 
 ## Troubleshooting
 
 - If PDF printing fails, install SumatraPDF and try again.
-- If the client does not appear online, make sure the server is running and `base_url` in `printform.ini` is correct.
+- If the client does not appear online, make sure the server is running and `base_url` in `printorder.ini` is correct.

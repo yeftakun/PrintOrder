@@ -5,7 +5,7 @@ using System.IO;
 using System.Reflection;
 using System.Windows.Forms;
 
-namespace PrintForm
+namespace PrintOrder
 {
     internal sealed class AboutForm : Form
     {
@@ -338,7 +338,7 @@ namespace PrintForm
 
         private static Image? TryLoadLogoImage()
         {
-            var path = Path.Combine(AppContext.BaseDirectory, "Assets", "logo_printform.png");
+            var path = Path.Combine(AppContext.BaseDirectory, "Assets", "logo_printorder.png");
             if (!File.Exists(path))
             {
                 return null;

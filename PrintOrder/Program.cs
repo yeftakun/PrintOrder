@@ -7,13 +7,13 @@ using System.Security.Principal;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace PrintForm
+namespace PrintOrder
 {
     internal static class Program
     {
         private const string CreateRequiredFilesArgument = "--create-required-files";
         private const string SaveServerBaseUrlArgument = "--save-server-base-url";
-        private const string SingleInstanceMutexName = "Local\\PrintForm.SingleInstance";
+        private const string SingleInstanceMutexName = "Local\\PrintOrder.SingleInstance";
 
         /// <summary>
         ///  The main entry point for the application.
@@ -67,12 +67,12 @@ namespace PrintForm
             }
             catch (UnauthorizedAccessException)
             {
-                errorMessage = $"Tidak punya izin menulis printform.ini di {AppConfig.GetConfigFilePath()}.";
+                errorMessage = $"Tidak punya izin menulis printorder.ini di {AppConfig.GetConfigFilePath()}.";
                 return false;
             }
             catch (Exception ex)
             {
-                errorMessage = $"Gagal menyimpan file printform.ini: {ex.Message}";
+                errorMessage = $"Gagal menyimpan file printorder.ini: {ex.Message}";
                 return false;
             }
         }

@@ -1,6 +1,6 @@
 using System.Drawing.Drawing2D;
 
-namespace PrintForm
+namespace PrintOrder
 {
     internal sealed class ToastNotificationForm : Form
     {

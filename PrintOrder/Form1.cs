@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Printing;
@@ -16,7 +16,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace PrintForm
+namespace PrintOrder
 {
     public partial class Form1 : Form
     {
@@ -184,7 +184,7 @@ namespace PrintForm
             {
                 statusLabel.Text = "Pengaturan disimpan. Restart aplikasi untuk menerapkan Base URL baru.";
                 MessageBox.Show(
-                    "Perubahan tersimpan ke printform.ini.\nRestart aplikasi agar koneksi memakai Base URL terbaru.",
+                    "Perubahan tersimpan ke printorder.ini.\nRestart aplikasi agar koneksi memakai Base URL terbaru.",
                     "Pengaturan",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
@@ -1435,7 +1435,7 @@ namespace PrintForm
 
             try
             {
-                var userDataDir = Path.Combine(Path.GetTempPath(), $"printform-edge-{Guid.NewGuid():N}");
+                var userDataDir = Path.Combine(Path.GetTempPath(), $"printorder-edge-{Guid.NewGuid():N}");
                 Directory.CreateDirectory(userDataDir);
                 var safePrinter = printerName.Replace("\"", "\\\"");
                 var fileUrl = new Uri(filePath).AbsoluteUri;

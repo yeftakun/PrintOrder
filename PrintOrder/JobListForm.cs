@@ -11,7 +11,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace PrintForm
+namespace PrintOrder
 {
     internal sealed class JobListForm : Form
     {

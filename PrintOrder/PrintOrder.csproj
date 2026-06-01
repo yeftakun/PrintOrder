@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -13,6 +13,7 @@
     <Product>PrintOrder Client</Product>
     <AssemblyTitle>PrintOrder Client</AssemblyTitle>
     <Description>Desktop client untuk menerima dan mencetak tugas dari server PrintOrder.</Description>
+    <ApplicationIcon>Assets\logo_printorder.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,7 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="Assets\logo_printform.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\logo_printorder.png" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Assets\Icons\*.png" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Assets\Sounds\*.wav" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

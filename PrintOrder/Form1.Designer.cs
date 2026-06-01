@@ -1,6 +1,6 @@
-﻿#nullable enable
+#nullable enable
 
-namespace PrintForm
+namespace PrintOrder
 {
     partial class Form1
     {
@@ -497,8 +497,8 @@ namespace PrintForm
         {
             var candidates = new[]
             {
-                System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "logo_printform.png"),
-                System.IO.Path.Combine(AppContext.BaseDirectory, "logo_printform.png")
+                System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "logo_printorder.png"),
+                System.IO.Path.Combine(AppContext.BaseDirectory, "logo_printorder.png")
             };
 
             foreach (var path in candidates)
