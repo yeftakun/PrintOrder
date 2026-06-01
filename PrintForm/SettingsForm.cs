@@ -1,6 +1,9 @@
 using System;
+using System.Diagnostics;
 using System.Drawing;
+using System.Net.Http;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 namespace PrintForm
 {
@@ -8,132 +11,299 @@ namespace PrintForm
     {
         private readonly string _initialBaseUrl;
         private readonly NotificationOptions _initialNotificationOptions;
+        private readonly bool _initialAutoStartEnabled;
 
         private readonly TextBox _baseUrlTextBox = new TextBox();
         private readonly CheckBox _soundNotificationCheckBox = new CheckBox();
         private readonly CheckBox _desktopNotificationCheckBox = new CheckBox();
-        private readonly Button _saveButton = new Button();
-        private readonly Button _cancelButton = new Button();
+        private readonly SettingsToggleSwitch _autoStartSwitch = new SettingsToggleSwitch();
+        private readonly RoundedButton _testConnectionButton = new RoundedButton();
+        private readonly RoundedButton _openConfigFolderButton = new RoundedButton();
+        private readonly RoundedButton _saveButton = new RoundedButton();
+        private readonly RoundedButton _cancelButton = new RoundedButton();
+        private readonly Label _testResultLabel = new Label();
 
         public string? SavedBaseUrl { get; private set; }
         public NotificationOptions? SavedNotificationOptions { get; private set; }
         public bool SavedChanges { get; private set; }
         public bool BaseUrlChanged { get; private set; }
         public bool NotificationOptionsChanged { get; private set; }
+        public bool AutoStartChanged { get; private set; }
 
         public SettingsForm(string currentBaseUrl, NotificationOptions currentNotificationOptions)
         {
             _initialBaseUrl = (currentBaseUrl ?? string.Empty).Trim().TrimEnd('/');
             _initialNotificationOptions = currentNotificationOptions?.Clone() ?? new NotificationOptions();
+            _initialAutoStartEnabled = WindowsAutoStart.IsEnabled();
 
             InitializeLayout();
         }
 
         private void InitializeLayout()
         {
-            Text = "Pengaturan";
+            AutoScaleMode = AutoScaleMode.Dpi;
+            BackColor = UiTheme.PageBackground;
+            ClientSize = new Size(720, 560);
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular);
             FormBorderStyle = FormBorderStyle.FixedDialog;
-            StartPosition = FormStartPosition.CenterParent;
             MaximizeBox = false;
             MinimizeBox = false;
-            ClientSize = new Size(640, 320);
-            Font = new Font("Segoe UI", 9F, FontStyle.Regular);
+            ShowInTaskbar = false;
+            StartPosition = FormStartPosition.CenterParent;
+            Text = "Pengaturan";
 
-            var fileLabel = new Label
+            var root = new TableLayoutPanel
             {
-                AutoSize = false,
-                Location = new Point(20, 16),
-                Size = new Size(595, 22),
-                ForeColor = UiTheme.MutedText,
+                Dock = DockStyle.Fill,
+                BackColor = UiTheme.PageBackground,
+                ColumnCount = 1,
+                RowCount = 5,
+                Padding = new Padding(24, 22, 24, 18)
+            };
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 160));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 126));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 110));
+            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+            root.Controls.Add(BuildHeader(), 0, 0);
+            root.Controls.Add(BuildServerSection(), 0, 1);
+            root.Controls.Add(BuildNotificationSection(), 0, 2);
+            root.Controls.Add(BuildSystemSection(), 0, 3);
+            root.Controls.Add(BuildFooter(), 0, 4);
+
+            Controls.Add(root);
+
+            Shown += (_, _) => _baseUrlTextBox.Focus();
+        }
+
+        private Control BuildHeader()
+        {
+            var panel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = UiTheme.PageBackground
+            };
+
+            panel.Controls.Add(new IconBadge
+            {
+                Kind = IconKind.Settings,
+                Circle = true,
+                CircleBackColor = UiTheme.AccentSoft,
+                IconColor = UiTheme.Accent,
+                Location = new Point(0, 6),
+                Size = new Size(48, 48)
+            });
+
+            panel.Controls.Add(new Label
+            {
                 AutoEllipsis = true,
-                Text = $"File: {AppConfig.GetConfigFilePath()}"
-            };
+                Font = new Font("Segoe UI", 20F, FontStyle.Bold),
+                ForeColor = UiTheme.Text,
+                Location = new Point(64, 0),
+                Size = new Size(420, 45),
+                Text = "Pengaturan",
+                TextAlign = ContentAlignment.MiddleLeft
+            });
 
-            var serverSectionLabel = new Label
-            {
-                AutoSize = true,
-                Location = new Point(20, 52),
-                Font = new Font(Font, FontStyle.Bold),
-                Text = "Server"
-            };
+            // panel.Controls.Add(new Label
+            // {
+            //     AutoEllipsis = true,
+            //     Font = new Font("Segoe UI", 10.5F, FontStyle.Regular),
+            //     ForeColor = UiTheme.MutedText,
+            //     Location = new Point(66, 38),
+            //     Size = new Size(540, 24),
+            //     Text = "Konfigurasi koneksi, notifikasi, dan startup aplikasi.",
+            //     TextAlign = ContentAlignment.MiddleLeft
+            // });
 
-            var baseUrlLabel = new Label
-            {
-                AutoSize = true,
-                Location = new Point(20, 88),
-                Text = "Base URL"
-            };
+            return panel;
+        }
 
-            _baseUrlTextBox.Location = new Point(140, 84);
-            _baseUrlTextBox.Size = new Size(470, 27);
+        private Control BuildServerSection()
+        {
+            var section = CreateSection();
+            section.Controls.Add(CreateSectionTitle("Server", IconKind.Server));
+
+            var baseUrlLabel = CreateFieldLabel("Base URL");
+            baseUrlLabel.SetBounds(20, 48, 120, 24);
+            section.Controls.Add(baseUrlLabel);
+
+            var inputHost = CreateInputHost();
+            inputHost.SetBounds(20, 74, 478, 44);
+            _baseUrlTextBox.BorderStyle = BorderStyle.None;
+            _baseUrlTextBox.Font = new Font("Segoe UI", 10.5F, FontStyle.Regular);
+            _baseUrlTextBox.ForeColor = UiTheme.Text;
+            _baseUrlTextBox.PlaceholderText = "http://127.0.0.1:3000";
             _baseUrlTextBox.Text = _initialBaseUrl;
+            _baseUrlTextBox.SetBounds(14, 11, 448, 24);
+            inputHost.Controls.Add(_baseUrlTextBox);
+            section.Controls.Add(inputHost);
 
-            var hintLabel = new Label
+            _testConnectionButton.Text = "Test Koneksi";
+            _testConnectionButton.UseAccentFill = false;
+            _testConnectionButton.SetBounds(514, 74, 130, 44);
+            _testConnectionButton.Click += async (_, _) => await TestConnectionAsync();
+            section.Controls.Add(_testConnectionButton);
+
+            _testResultLabel.AutoEllipsis = true;
+            _testResultLabel.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
+            _testResultLabel.ForeColor = UiTheme.MutedText;
+            _testResultLabel.Location = new Point(20, 120);
+            _testResultLabel.Size = new Size(624, 22);
+            _testResultLabel.Text = "Contoh: http://127.0.0.1:3000";
+            section.Controls.Add(_testResultLabel);
+
+            return section;
+        }
+
+        private Control BuildNotificationSection()
+        {
+            var section = CreateSection();
+            section.Controls.Add(CreateSectionTitle("Notifikasi", IconKind.Lightning));
+
+            ConfigureCheckBox(_soundNotificationCheckBox, "Suara Notifikasi", _initialNotificationOptions.SoundEnabled);
+            _soundNotificationCheckBox.SetBounds(20, 48, 260, 26);
+            section.Controls.Add(_soundNotificationCheckBox);
+
+            ConfigureCheckBox(_desktopNotificationCheckBox, "Notifikasi", _initialNotificationOptions.DesktopEnabled);
+            _desktopNotificationCheckBox.SetBounds(20, 76, 260, 26);
+            section.Controls.Add(_desktopNotificationCheckBox);
+
+            var hint = new Label
             {
-                AutoSize = true,
-                Location = new Point(140, 116),
+                AutoEllipsis = true,
+                Font = new Font("Segoe UI", 9F, FontStyle.Regular),
                 ForeColor = UiTheme.MutedText,
-                Text = "Contoh: http://127.0.0.1:3000"
+                Location = new Point(310, 55),
+                Size = new Size(330, 44),
+                Text = "Notifikasi muncul saat tugas cetak baru diterima.",
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            section.Controls.Add(hint);
+
+            return section;
+        }
+
+        private Control BuildSystemSection()
+        {
+            var section = CreateSection();
+            section.Controls.Add(CreateSectionTitle("Sistem", IconKind.Settings));
+
+            var autoStartLabel = new Label
+            {
+                AutoEllipsis = true,
+                Font = new Font("Segoe UI", 10.2F, FontStyle.Regular),
+                ForeColor = UiTheme.Text,
+                Location = new Point(20, 50),
+                Size = new Size(210, 28),
+                Text = "Auto start Windows",
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            section.Controls.Add(autoStartLabel);
+
+            _autoStartSwitch.Checked = _initialAutoStartEnabled;
+            _autoStartSwitch.Location = new Point(236, 49);
+            _autoStartSwitch.Size = new Size(56, 30);
+            section.Controls.Add(_autoStartSwitch);
+
+            _openConfigFolderButton.Text = "Buka Folder Konfigurasi";
+            _openConfigFolderButton.UseAccentFill = false;
+            _openConfigFolderButton.SetBounds(424, 42, 220, 42);
+            _openConfigFolderButton.Click += (_, _) => OpenConfigFolder();
+            section.Controls.Add(_openConfigFolderButton);
+
+            return section;
+        }
+
+        private Control BuildFooter()
+        {
+            var panel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = UiTheme.PageBackground
             };
 
-            var notificationSectionLabel = new Label
+            var configPathLabel = new Label
             {
-                AutoSize = true,
-                Location = new Point(20, 156),
-                Font = new Font(Font, FontStyle.Bold),
-                Text = "Notifikasi"
-            };
-
-            _soundNotificationCheckBox.Location = new Point(140, 188);
-            _soundNotificationCheckBox.Size = new Size(450, 24);
-            _soundNotificationCheckBox.Text = "Suara Notifikasi";
-            _soundNotificationCheckBox.Checked = _initialNotificationOptions.SoundEnabled;
-
-            _desktopNotificationCheckBox.Location = new Point(140, 218);
-            _desktopNotificationCheckBox.Size = new Size(450, 24);
-            _desktopNotificationCheckBox.Text = "Notifikasi";
-            _desktopNotificationCheckBox.Checked = _initialNotificationOptions.DesktopEnabled;
-
-            var notificationHintLabel = new Label
-            {
-                AutoSize = false,
-                Location = new Point(140, 248),
-                Size = new Size(470, 22),
+                AutoEllipsis = true,
+                Font = new Font("Segoe UI", 8.8F, FontStyle.Regular),
                 ForeColor = UiTheme.MutedText,
-                Text = "Notifikasi muncul selama 4 detik saat tugas cetak baru masuk."
+                Location = new Point(0, 10),
+                Size = new Size(430, 34),
+                Text = $"File: {AppConfig.GetConfigFilePath()}",
+                TextAlign = ContentAlignment.MiddleLeft
             };
+            panel.Controls.Add(configPathLabel);
 
-            _saveButton.Location = new Point(390, 280);
-            _saveButton.Size = new Size(105, 32);
             _saveButton.Text = "Simpan";
-            _saveButton.UseVisualStyleBackColor = true;
+            _saveButton.UseAccentFill = true;
+            _saveButton.SetBounds(446, 10, 106, 42);
             _saveButton.Click += SaveButton_Click;
+            panel.Controls.Add(_saveButton);
 
-            _cancelButton.Location = new Point(505, 280);
-            _cancelButton.Size = new Size(105, 32);
             _cancelButton.Text = "Batal";
-            _cancelButton.UseVisualStyleBackColor = true;
-            _cancelButton.DialogResult = DialogResult.Cancel;
+            _cancelButton.UseAccentFill = false;
+            _cancelButton.SetBounds(562, 10, 106, 42);
+            _cancelButton.Click += (_, _) =>
+            {
+                DialogResult = DialogResult.Cancel;
+                Close();
+            };
+            panel.Controls.Add(_cancelButton);
 
-            AcceptButton = _saveButton;
-            CancelButton = _cancelButton;
+            return panel;
+        }
 
-            Controls.Add(fileLabel);
-            Controls.Add(serverSectionLabel);
-            Controls.Add(baseUrlLabel);
-            Controls.Add(_baseUrlTextBox);
-            Controls.Add(hintLabel);
-            Controls.Add(notificationSectionLabel);
-            Controls.Add(_soundNotificationCheckBox);
-            Controls.Add(_desktopNotificationCheckBox);
-            Controls.Add(notificationHintLabel);
-            Controls.Add(_saveButton);
-            Controls.Add(_cancelButton);
+        private async Task TestConnectionAsync()
+        {
+            var inputValue = NormalizeBaseUrlInput();
+            if (!AppConfig.IsValidServerBaseUrl(inputValue))
+            {
+                SetTestResult("Base URL tidak valid.", JobVisuals.Danger);
+                _baseUrlTextBox.Focus();
+                return;
+            }
+
+            _testConnectionButton.Enabled = false;
+            _testConnectionButton.Text = "Menguji...";
+            SetTestResult("Menghubungi server...", UiTheme.MutedText);
+
+            try
+            {
+                using var client = new HttpClient
+                {
+                    Timeout = TimeSpan.FromSeconds(5)
+                };
+
+                using var response = await client.GetAsync(inputValue, HttpCompletionOption.ResponseHeadersRead);
+                if ((int)response.StatusCode < 500)
+                {
+                    SetTestResult($"Server merespons ({(int)response.StatusCode}).", UiTheme.Success);
+                }
+                else
+                {
+                    SetTestResult($"Server merespons dengan error ({(int)response.StatusCode}).", JobVisuals.Warning);
+                }
+            }
+            catch (TaskCanceledException)
+            {
+                SetTestResult("Koneksi timeout. Periksa server atau jaringan.", JobVisuals.Danger);
+            }
+            catch (Exception ex)
+            {
+                SetTestResult($"Tidak bisa terhubung: {ex.Message}", JobVisuals.Danger);
+            }
+            finally
+            {
+                _testConnectionButton.Text = "Test Koneksi";
+                _testConnectionButton.Enabled = true;
+            }
         }
 
         private void SaveButton_Click(object? sender, EventArgs e)
         {
-            var inputValue = (_baseUrlTextBox.Text ?? string.Empty).Trim().Trim('"').TrimEnd('/');
+            var inputValue = NormalizeBaseUrlInput();
             if (!AppConfig.IsValidServerBaseUrl(inputValue))
             {
                 MessageBox.Show(
@@ -157,8 +327,9 @@ namespace PrintForm
             NotificationOptionsChanged =
                 newNotificationOptions.SoundEnabled != _initialNotificationOptions.SoundEnabled
                 || newNotificationOptions.DesktopEnabled != _initialNotificationOptions.DesktopEnabled;
+            AutoStartChanged = _autoStartSwitch.Checked != _initialAutoStartEnabled;
 
-            if (!BaseUrlChanged && !NotificationOptionsChanged)
+            if (!BaseUrlChanged && !NotificationOptionsChanged && !AutoStartChanged)
             {
                 MessageBox.Show(
                     this,
@@ -174,13 +345,21 @@ namespace PrintForm
 
             try
             {
-                AppConfig.SaveAppSettings(inputValue, newNotificationOptions);
+                if (BaseUrlChanged || NotificationOptionsChanged)
+                {
+                    AppConfig.SaveAppSettings(inputValue, newNotificationOptions);
+                }
+
+                if (AutoStartChanged)
+                {
+                    WindowsAutoStart.SetEnabled(_autoStartSwitch.Checked);
+                }
             }
             catch (UnauthorizedAccessException)
             {
                 MessageBox.Show(
                     this,
-                    $"Tidak punya izin menulis printform.ini di {AppConfig.GetConfigFilePath()}.",
+                    $"Tidak punya izin menulis konfigurasi di {AppConfig.GetConfigFilePath()}.",
                     "Gagal Menyimpan",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
@@ -191,7 +370,7 @@ namespace PrintForm
             {
                 MessageBox.Show(
                     this,
-                    $"Gagal menyimpan file printform.ini: {ex.Message}",
+                    $"Gagal menyimpan pengaturan: {ex.Message}",
                     "Gagal Menyimpan",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
@@ -212,6 +391,248 @@ namespace PrintForm
 
             DialogResult = DialogResult.OK;
             Close();
+        }
+
+        private string NormalizeBaseUrlInput()
+        {
+            return (_baseUrlTextBox.Text ?? string.Empty).Trim().Trim('"').TrimEnd('/');
+        }
+
+        private void SetTestResult(string message, Color color)
+        {
+            _testResultLabel.ForeColor = color;
+            _testResultLabel.Text = message;
+        }
+
+        private static RoundedPanel CreateSection()
+        {
+            return new RoundedPanel
+            {
+                Dock = DockStyle.Fill,
+                FillColor = Color.White,
+                BorderColor = UiTheme.Border,
+                CornerRadius = 12,
+                Margin = new Padding(0, 0, 0, 12)
+            };
+        }
+
+        private static Control CreateSectionTitle(string text, IconKind iconKind)
+        {
+            var panel = new Panel
+            {
+                BackColor = Color.White,
+                Location = new Point(18, 14),
+                Size = new Size(320, 30)
+            };
+
+            panel.Controls.Add(new IconBadge
+            {
+                Kind = iconKind,
+                Circle = false,
+                IconColor = UiTheme.Accent,
+                Location = new Point(0, 3),
+                Size = new Size(24, 24)
+            });
+
+            panel.Controls.Add(new Label
+            {
+                AutoEllipsis = true,
+                Font = new Font("Segoe UI", 11.4F, FontStyle.Bold),
+                ForeColor = UiTheme.Text,
+                Location = new Point(34, 0),
+                Size = new Size(260, 30),
+                Text = text,
+                TextAlign = ContentAlignment.MiddleLeft
+            });
+
+            return panel;
+        }
+
+        private static Label CreateFieldLabel(string text)
+        {
+            return new Label
+            {
+                AutoEllipsis = true,
+                Font = new Font("Segoe UI", 9.6F, FontStyle.Bold),
+                ForeColor = UiTheme.Text,
+                Text = text,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+        }
+
+        private static RoundedPanel CreateInputHost()
+        {
+            return new RoundedPanel
+            {
+                FillColor = Color.White,
+                BorderColor = Color.FromArgb(205, 211, 220),
+                CornerRadius = 8
+            };
+        }
+
+        private static void ConfigureCheckBox(CheckBox checkBox, string text, bool isChecked)
+        {
+            checkBox.AutoSize = false;
+            checkBox.BackColor = Color.White;
+            checkBox.Checked = isChecked;
+            checkBox.Font = new Font("Segoe UI", 10F, FontStyle.Regular);
+            checkBox.ForeColor = UiTheme.Text;
+            checkBox.Text = text;
+            checkBox.TextAlign = ContentAlignment.MiddleLeft;
+            checkBox.UseVisualStyleBackColor = false;
+        }
+
+        private void OpenConfigFolder()
+        {
+            var configFolder = Path.GetDirectoryName(AppConfig.GetConfigFilePath());
+            if (string.IsNullOrWhiteSpace(configFolder))
+            {
+                return;
+            }
+
+            Directory.CreateDirectory(configFolder);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = configFolder,
+                UseShellExecute = true
+            });
+        }
+    }
+
+    internal sealed class SettingsToggleSwitch : Control
+    {
+        private bool _checked;
+        private bool _hovered;
+
+        public bool Checked
+        {
+            get => _checked;
+            set
+            {
+                if (_checked == value)
+                {
+                    return;
+                }
+
+                _checked = value;
+                Invalidate();
+            }
+        }
+
+        public SettingsToggleSwitch()
+        {
+            SetStyle(
+                ControlStyles.UserPaint |
+                ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer |
+                ControlStyles.ResizeRedraw |
+                ControlStyles.Selectable,
+                true);
+
+            Cursor = Cursors.Hand;
+            TabStop = true;
+        }
+
+        protected override void OnClick(EventArgs e)
+        {
+            base.OnClick(e);
+            Checked = !Checked;
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            base.OnKeyDown(e);
+            if (e.KeyCode == Keys.Space || e.KeyCode == Keys.Enter)
+            {
+                Checked = !Checked;
+                e.Handled = true;
+            }
+        }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            base.OnMouseEnter(e);
+            _hovered = true;
+            Invalidate();
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            _hovered = false;
+            Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+            using var backgroundBrush = new SolidBrush(UiDrawing.ResolveSurfaceColor(this, Color.White));
+            e.Graphics.FillRectangle(backgroundBrush, ClientRectangle);
+
+            var track = new Rectangle(1, 3, Width - 2, Height - 6);
+            var trackColor = Checked
+                ? (_hovered ? Color.FromArgb(30, 178, 86) : UiTheme.Success)
+                : (_hovered ? Color.FromArgb(219, 224, 232) : Color.FromArgb(229, 233, 240));
+
+            using var trackPath = UiDrawing.CreateRoundedRectangle(track, track.Height / 2);
+            using var trackBrush = new SolidBrush(trackColor);
+            e.Graphics.FillPath(trackBrush, trackPath);
+
+            var knobSize = track.Height - 6;
+            var knobX = Checked ? track.Right - knobSize - 3 : track.Left + 3;
+            var knob = new Rectangle(knobX, track.Top + 3, knobSize, knobSize);
+            using var knobBrush = new SolidBrush(Color.White);
+            e.Graphics.FillEllipse(knobBrush, knob);
+        }
+    }
+
+    internal static class WindowsAutoStart
+    {
+        private const string RegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+        private const string ValueName = "PrintForm Client";
+
+        public static bool IsEnabled()
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(RegistryPath, writable: false);
+                return key?.GetValue(ValueName) is string value
+                    && value.Contains(GetExecutablePath(), StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static void SetEnabled(bool enabled)
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RegistryPath, writable: true)
+                ?? Registry.CurrentUser.CreateSubKey(RegistryPath, writable: true);
+
+            if (key == null)
+            {
+                throw new InvalidOperationException("Registry startup tidak bisa dibuka.");
+            }
+
+            if (enabled)
+            {
+                key.SetValue(ValueName, Quote(GetExecutablePath()), RegistryValueKind.String);
+                return;
+            }
+
+            key.DeleteValue(ValueName, throwOnMissingValue: false);
+        }
+
+        private static string GetExecutablePath()
+        {
+            return Environment.ProcessPath ?? Application.ExecutablePath;
+        }
+
+        private static string Quote(string value)
+        {
+            return $"\"{value.Trim('"')}\"";
         }
     }
 }

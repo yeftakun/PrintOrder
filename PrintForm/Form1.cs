@@ -191,7 +191,9 @@ namespace PrintForm
                 return;
             }
 
-            statusLabel.Text = "Pengaturan notifikasi disimpan.";
+            statusLabel.Text = settingsForm.AutoStartChanged && !settingsForm.NotificationOptionsChanged
+                ? "Pengaturan auto start disimpan."
+                : "Pengaturan disimpan.";
         }
 
         private async void btnLogin_Click(object sender, EventArgs e)
