@@ -11,6 +11,7 @@ namespace PrintForm
     {
         private readonly string _clientId;
         private readonly string _baseUrl;
+        private readonly ToolTip _toolTip = new();
         private Image? _logoImage;
 
         public AboutForm(string? clientId, string baseUrl)
@@ -25,7 +26,7 @@ namespace PrintForm
         {
             AutoScaleMode = AutoScaleMode.Dpi;
             BackColor = UiTheme.PageBackground;
-            ClientSize = new Size(540, 386);
+            ClientSize = new Size(560, 392);
             Font = new Font("Segoe UI", 10F, FontStyle.Regular);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -40,11 +41,11 @@ namespace PrintForm
                 BackColor = UiTheme.PageBackground,
                 ColumnCount = 1,
                 RowCount = 3,
-                Padding = new Padding(22, 18, 22, 18)
+                Padding = new Padding(24, 15, 24, 15)
             };
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
 
             root.Controls.Add(BuildHeader(), 0, 0);
             root.Controls.Add(BuildContent(), 0, 1);
@@ -54,43 +55,61 @@ namespace PrintForm
 
         private Control BuildHeader()
         {
-            var panel = new Panel
+            var panel = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                BackColor = UiTheme.PageBackground
+                BackColor = UiTheme.PageBackground,
+                ColumnCount = 2,
+                RowCount = 1,
+                Margin = Padding.Empty
             };
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 58));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
             var logo = new PictureBox
             {
-                Location = new Point(0, 5),
-                Size = new Size(46, 46),
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0, 5, 12, 9),
                 SizeMode = PictureBoxSizeMode.Zoom
             };
             _logoImage = TryLoadLogoImage();
             logo.Image = _logoImage;
 
-            panel.Controls.Add(logo);
-            panel.Controls.Add(new Label
+            var titleStack = new TableLayoutPanel
             {
-                AutoEllipsis = true,
-                Font = new Font("Segoe UI", 16F, FontStyle.Bold),
-                ForeColor = UiTheme.Text,
-                Location = new Point(62, 3),
-                Size = new Size(360, 32),
-                Text = "PrintOrder Client",
-                TextAlign = ContentAlignment.MiddleLeft
-            });
+                Dock = DockStyle.Fill,
+                BackColor = UiTheme.PageBackground,
+                ColumnCount = 1,
+                RowCount = 2,
+                Margin = Padding.Empty
+            };
+            titleStack.RowStyles.Add(new RowStyle(SizeType.Percent, 58));
+            titleStack.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
 
-            panel.Controls.Add(new Label
+            titleStack.Controls.Add(new Label
             {
                 AutoEllipsis = true,
+                Dock = DockStyle.Fill,
+                Font = new Font("Segoe UI", 15F, FontStyle.Bold),
+                ForeColor = UiTheme.Text,
+                Margin = Padding.Empty,
+                Text = "PrintOrder Client",
+                TextAlign = ContentAlignment.BottomLeft
+            }, 0, 0);
+
+            titleStack.Controls.Add(new Label
+            {
+                AutoEllipsis = true,
+                Dock = DockStyle.Fill,
                 Font = new Font("Segoe UI", 9.5F, FontStyle.Regular),
                 ForeColor = UiTheme.MutedText,
-                Location = new Point(64, 35),
-                Size = new Size(360, 24),
+                Margin = Padding.Empty,
                 Text = $"Versi {ResolveVersion()}",
-                TextAlign = ContentAlignment.MiddleLeft
-            });
+                TextAlign = ContentAlignment.TopLeft
+            }, 0, 1);
+
+            panel.Controls.Add(logo, 0, 0);
+            panel.Controls.Add(titleStack, 1, 0);
 
             return panel;
         }
@@ -103,46 +122,83 @@ namespace PrintForm
                 FillColor = Color.White,
                 BorderColor = UiTheme.Border,
                 CornerRadius = 12,
-                Padding = new Padding(18, 16, 18, 14)
+                Padding = new Padding(18, 14, 18, 14)
             };
 
-            card.Controls.Add(CreateDescriptionLabel());
-            AddInfoRow(card, 0, "Runtime", ".NET 8 Windows");
-            AddInfoRow(card, 1, "Client ID", _clientId, CreateSmallButton("Copy", CopyClientId));
-            AddInfoRow(card, 2, "Base URL", _baseUrl);
-            AddInfoRow(card, 3, "Konfigurasi", AppConfig.GetConfigFilePath(), CreateSmallButton("Buka", OpenConfigFolder));
+            var content = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.White,
+                ColumnCount = 1,
+                RowCount = 2,
+                Margin = Padding.Empty
+            };
+            content.RowStyles.Add(new RowStyle(SizeType.Absolute, 56));
+            content.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+            var details = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.White,
+                ColumnCount = 4,
+                RowCount = 4,
+                Margin = Padding.Empty
+            };
+            details.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112));
+            details.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 14));
+            details.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            details.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 74));
+
+            for (var i = 0; i < 4; i++)
+            {
+                details.RowStyles.Add(new RowStyle(SizeType.Percent, 25));
+            }
+
+            AddInfoRow(details, 0, "Runtime", ".NET 8 Windows");
+            AddInfoRow(details, 1, "Client ID", _clientId, CreateSmallButton("Copy", CopyClientId));
+            AddInfoRow(details, 2, "Base URL", _baseUrl);
+            AddInfoRow(details, 3, "Konfigurasi", AppConfig.GetConfigFilePath(), CreateSmallButton("Buka", OpenConfigFolder));
+
+            content.Controls.Add(CreateDescriptionLabel(), 0, 0);
+            content.Controls.Add(details, 0, 1);
+            card.Controls.Add(content);
 
             return card;
         }
 
         private Control BuildFooter()
         {
-            var footer = new Panel
+            var footer = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                BackColor = UiTheme.PageBackground
+                BackColor = UiTheme.PageBackground,
+                ColumnCount = 2,
+                RowCount = 1,
+                Margin = Padding.Empty
             };
+            footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 118));
 
             footer.Controls.Add(new Label
             {
                 AutoEllipsis = true,
+                Dock = DockStyle.Fill,
                 Font = new Font("Segoe UI", 9F, FontStyle.Regular),
                 ForeColor = UiTheme.MutedText,
-                Location = new Point(0, 14),
-                Size = new Size(260, 24),
+                Margin = new Padding(0, 10, 12, 0),
                 Text = $"Copyright {DateTime.Now.Year} PrintOrder",
                 TextAlign = ContentAlignment.MiddleLeft
-            });
+            }, 0, 0);
 
             var closeButton = new RoundedButton
             {
                 Text = "Tutup",
                 UseAccentFill = true,
-                Location = new Point(378, 7),
-                Size = new Size(118, 40)
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0, 8, 0, 0)
             };
             closeButton.Click += (_, _) => Close();
-            footer.Controls.Add(closeButton);
+            footer.Controls.Add(closeButton, 1, 0);
 
             return footer;
         }
@@ -152,46 +208,68 @@ namespace PrintForm
             return new Label
             {
                 AutoEllipsis = true,
+                Dock = DockStyle.Fill,
                 Font = new Font("Segoe UI", 9.8F, FontStyle.Regular),
                 ForeColor = Color.FromArgb(52, 63, 82),
-                Location = new Point(18, 14),
-                Size = new Size(460, 42),
+                Margin = new Padding(4, 0, 4, 8),
                 Text = "Desktop client untuk menerima dan mencetak tugas dari server PrintOrder.",
                 TextAlign = ContentAlignment.MiddleLeft
             };
         }
 
-        private static void AddInfoRow(Control parent, int index, string label, string value, Control? action = null)
+        private void AddInfoRow(TableLayoutPanel parent, int index, string label, string value, Control? action = null)
         {
-            var top = 68 + index * 42;
-
-            parent.Controls.Add(new Label
+            var labelControl = new Label
             {
                 AutoEllipsis = true,
+                Dock = DockStyle.Fill,
                 Font = new Font("Segoe UI", 9.4F, FontStyle.Bold),
                 ForeColor = UiTheme.Text,
-                Location = new Point(18, top),
-                Size = new Size(108, 26),
+                Margin = new Padding(4, 0, 0, 0),
                 Text = label,
                 TextAlign = ContentAlignment.MiddleLeft
-            });
+            };
 
-            parent.Controls.Add(new Label
+            var separator = new Label
             {
-                AutoEllipsis = true,
+                Dock = DockStyle.Fill,
                 Font = new Font("Segoe UI", 9.4F, FontStyle.Regular),
                 ForeColor = UiTheme.MutedText,
-                Location = new Point(136, top),
-                Size = new Size(action == null ? 342 : 262, 26),
+                Margin = Padding.Empty,
+                Text = ":",
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+
+            var valueControl = new Label
+            {
+                AutoEllipsis = true,
+                Dock = DockStyle.Fill,
+                Font = new Font("Segoe UI", 9.4F, FontStyle.Regular),
+                ForeColor = UiTheme.MutedText,
+                Margin = new Padding(10, 0, action == null ? 4 : 10, 0),
                 Text = value,
                 TextAlign = ContentAlignment.MiddleLeft
-            });
+            };
+            _toolTip.SetToolTip(valueControl, value);
+
+            parent.Controls.Add(labelControl, 0, index);
+            parent.Controls.Add(separator, 1, index);
+            parent.Controls.Add(valueControl, 2, index);
 
             if (action != null)
             {
-                action.Location = new Point(410, top - 4);
-                action.Size = new Size(68, 34);
-                parent.Controls.Add(action);
+                action.Dock = DockStyle.Fill;
+                action.Margin = new Padding(0, 2, 4, 2);
+                parent.Controls.Add(action, 3, index);
+            }
+            else
+            {
+                parent.Controls.Add(new Panel
+                {
+                    Dock = DockStyle.Fill,
+                    BackColor = Color.White,
+                    Margin = Padding.Empty
+                }, 3, index);
             }
         }
 
@@ -250,6 +328,7 @@ namespace PrintForm
         {
             if (disposing)
             {
+                _toolTip.Dispose();
                 _logoImage?.Dispose();
                 _logoImage = null;
             }
