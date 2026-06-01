@@ -1,6 +1,6 @@
-# PrintForm Client (.NET)
+# PrintOrder Client (.NET)
 
-WinForms client for receiving and printing jobs from the PrintForm server.
+WinForms client for receiving and printing jobs from the PrintOrder server.
 
 ## Requirements
 

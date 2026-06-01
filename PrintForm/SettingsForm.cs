@@ -590,7 +590,7 @@ namespace PrintForm
     internal static class WindowsAutoStart
     {
         private const string RegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
-        private const string ValueName = "PrintForm Client";
+        private const string ValueName = "PrintOrder Client";
 
         public static bool IsEnabled()
         {

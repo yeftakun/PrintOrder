@@ -346,7 +346,7 @@ namespace PrintForm
 
             return string.Join(Environment.NewLine, new[]
             {
-                "; PrintForm configuration",
+                "; PrintOrder configuration",
                 "; Ubah base_url sesuai alamat server",
                 "[server]",
                 $"base_url={baseUrl}",

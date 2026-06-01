@@ -65,7 +65,7 @@ namespace PrintForm
             Font = new Font("Segoe UI", 10F, FontStyle.Regular);
             Name = "Form1";
             StartPosition = FormStartPosition.CenterScreen;
-            Text = "PrintForm Client";
+            Text = "PrintOrder Client";
             Load += Form1_Load;
             Resize += (_, _) => CenterDashboardShells();
 
@@ -119,7 +119,7 @@ namespace PrintForm
                 Size = new Size(420, 56),
                 Font = new Font("Segoe UI", 28F, FontStyle.Bold),
                 ForeColor = UiTheme.Text,
-                Text = "PrintForm"
+                Text = "PrintOrder"
             };
 
             var subtitleLabel = new Label
@@ -129,7 +129,7 @@ namespace PrintForm
                 Size = new Size(520, 22),
                 Font = new Font("Segoe UI", 12.5F, FontStyle.Regular),
                 ForeColor = UiTheme.MutedText,
-                Text = "Penghubung printer lokal dengan PrintForm",
+                Text = "Penghubung printer lokal dengan PrintOrder",
                 Visible = false
             };
 

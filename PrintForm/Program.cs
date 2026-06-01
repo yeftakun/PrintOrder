@@ -39,8 +39,8 @@ namespace PrintForm
             if (!isFirstInstance)
             {
                 MessageBox.Show(
-                    "PrintForm sudah berjalan. Tutup aplikasi yang sedang aktif sebelum membuka lagi.",
-                    "PrintForm",
+                    "PrintOrder sudah berjalan. Tutup aplikasi yang sedang aktif sebelum membuka lagi.",
+                    "PrintOrder",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
                 return;

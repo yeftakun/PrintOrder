@@ -57,7 +57,7 @@ namespace PrintForm
                 AutoEllipsis = true,
                 Font = new Font("Segoe UI", 10F, FontStyle.Regular),
                 ForeColor = UiTheme.MutedText,
-                Text = "Gunakan akun mitra yang terdaftar untuk menghubungkan client ini ke server PrintForm.",
+                Text = "Gunakan akun mitra yang terdaftar untuk menghubungkan client ini ke server PrintOrder.",
                 TextAlign = ContentAlignment.MiddleLeft
             };
 
@@ -181,7 +181,7 @@ namespace PrintForm
                 AutoEllipsis = true,
                 Font = new Font("Segoe UI", 11.2F, FontStyle.Regular),
                 ForeColor = UiTheme.MutedText,
-                Text = "Masukkan PIN untuk melepaskan pairing client ini dari akun PrintForm.",
+                Text = "Masukkan PIN untuk melepaskan pairing client ini dari akun PrintOrder.",
                 TextAlign = ContentAlignment.MiddleLeft
             };
 

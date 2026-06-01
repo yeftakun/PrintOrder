@@ -142,7 +142,7 @@ namespace PrintForm
         {
             if (!HasSavedAuthState)
             {
-                statusLabel.Text = "Hubungkan client dengan akun PrintForm terlebih dahulu.";
+                statusLabel.Text = "Hubungkan client dengan akun PrintOrder terlebih dahulu.";
                 return;
             }
 
