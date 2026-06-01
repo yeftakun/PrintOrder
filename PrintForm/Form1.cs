@@ -1671,7 +1671,7 @@ namespace PrintForm
         private void UpdateClientIdLabel()
         {
             var value = string.IsNullOrWhiteSpace(_clientId) ? "-" : _clientId;
-            labelClientId.Text = value;
+            labelClientId.Text = $"Client ID: {value}";
 
             RefreshDashboardState();
         }

@@ -60,8 +60,8 @@ namespace PrintForm
             AutoScaleDimensions = new SizeF(8F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
             BackColor = UiTheme.PageBackground;
-            ClientSize = new Size(1180, 820);
-            MinimumSize = new Size(940, 700);
+            ClientSize = new Size(1100, 580);
+            MinimumSize = new Size(900, 560);
             Font = new Font("Segoe UI", 10F, FontStyle.Regular);
             Name = "Form1";
             StartPosition = FormStartPosition.CenterScreen;
@@ -82,27 +82,27 @@ namespace PrintForm
             var headerPanel = new Panel
             {
                 Location = new Point(0, 0),
-                Size = new Size(1180, 145),
+                Size = new Size(1100, 104),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = Color.White
             };
 
             dashboardHeaderContent.Location = new Point(0, 0);
-            dashboardHeaderContent.Size = new Size(980, 145);
+            dashboardHeaderContent.Size = new Size(1020, 104);
             dashboardHeaderContent.BackColor = Color.White;
 
             var separator = new Panel
             {
-                Location = new Point(0, 144),
-                Size = new Size(1180, 1),
+                Location = new Point(0, 103),
+                Size = new Size(1100, 1),
                 Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
                 BackColor = UiTheme.Border
             };
 
             var logoBox = new PictureBox
             {
-                Location = new Point(0, 28),
-                Size = new Size(76, 76),
+                Location = new Point(0, 18),
+                Size = new Size(68, 68),
                 SizeMode = PictureBoxSizeMode.Zoom
             };
 
@@ -115,21 +115,22 @@ namespace PrintForm
             var titleLabel = new Label
             {
                 AutoSize = false,
-                Location = new Point(112, 33),
-                Size = new Size(520, 42),
-                Font = new Font("Segoe UI", 24F, FontStyle.Bold),
+                Location = new Point(88, 22),
+                Size = new Size(420, 56),
+                Font = new Font("Segoe UI", 28F, FontStyle.Bold),
                 ForeColor = UiTheme.Text,
-                Text = "PrintForm Client"
+                Text = "PrintForm"
             };
 
             var subtitleLabel = new Label
             {
                 AutoSize = false,
-                Location = new Point(115, 82),
-                Size = new Size(610, 30),
+                Location = new Point(0, 76),
+                Size = new Size(520, 22),
                 Font = new Font("Segoe UI", 12.5F, FontStyle.Regular),
                 ForeColor = UiTheme.MutedText,
-                Text = "Penghubung printer lokal dengan PrintForm"
+                Text = "Penghubung printer lokal dengan PrintForm",
+                Visible = false
             };
 
             dashboardHeaderContent.Controls.Add(logoBox);
@@ -144,14 +145,14 @@ namespace PrintForm
             // 
             var contentPanel = new Panel
             {
-                Location = new Point(0, 145),
-                Size = new Size(1180, 620),
+                Location = new Point(0, 104),
+                Size = new Size(1100, 450),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = UiTheme.PageBackground
             };
 
             dashboardContent.Location = new Point(0, 0);
-            dashboardContent.Size = new Size(980, 600);
+            dashboardContent.Size = new Size(1020, 450);
             dashboardContent.BackColor = UiTheme.PageBackground;
 
             // 
@@ -159,19 +160,20 @@ namespace PrintForm
             // 
             var statusIcon = new IconBadge
             {
-                Location = new Point(0, 18),
-                Size = new Size(28, 28),
+                Location = new Point(0, 0),
+                Size = new Size(1, 1),
                 Kind = IconKind.Bars,
                 Circle = false,
-                IconColor = UiTheme.Accent
+                IconColor = UiTheme.Accent,
+                Visible = false
             };
 
             var statusTitle = new Label
             {
                 AutoSize = false,
-                Location = new Point(40, 19),
-                Size = new Size(300, 30),
-                Font = new Font("Segoe UI", 14F, FontStyle.Bold),
+                Location = new Point(0, 8),
+                Size = new Size(360, 34),
+                Font = new Font("Segoe UI", 16F, FontStyle.Bold),
                 ForeColor = UiTheme.Text,
                 Text = "Ringkasan Status"
             };
@@ -194,50 +196,39 @@ namespace PrintForm
             labelServerState.ForeColor = UiTheme.MutedText;
 
             var accountCard = CreateStatusCard(
-                "Pairing Akun",
+                "Akun",
                 IconKind.Account,
                 UiTheme.Accent,
                 UiTheme.AccentSoft,
-                new Point(500, 52),
+                new Point(0, 172),
                 out labelAuthUser);
 
             labelAuthUser.Text = "Belum terhubung";
             labelAuthUser.ForeColor = UiTheme.Accent;
 
-            var clientCard = CreateStatusCard(
-                "Client ID",
-                IconKind.ClientId,
-                UiTheme.Accent,
-                UiTheme.AccentSoft,
-                new Point(0, 154),
-                out labelClientId);
+            labelClientId.AutoSize = false;
+            labelClientId.Location = new Point(0, 410);
+            labelClientId.Size = new Size(860, 28);
+            labelClientId.Font = new Font("Segoe UI", 10.5F, FontStyle.Regular);
+            labelClientId.ForeColor = UiTheme.Text;
+            labelClientId.AutoEllipsis = true;
+            labelClientId.Text = "Client ID: -";
 
-            labelClientId.Text = "-";
-            labelClientId.Font = new Font("Segoe UI", 11F, FontStyle.Regular);
-
-            var printerStatusCard = CreateStatusCard(
-                "Status Printer",
-                IconKind.Printer,
-                UiTheme.Success,
-                UiTheme.SuccessSoft,
-                new Point(500, 154),
-                out labelPrinterState);
-
-            labelPrinterState.Text = "● Siap";
+            labelPrinterState.Visible = false;
+            labelPrinterState.Text = string.Empty;
             labelPrinterState.ForeColor = UiTheme.Success;
 
             dashboardContent.Controls.Add(serverCard);
             dashboardContent.Controls.Add(accountCard);
-            dashboardContent.Controls.Add(clientCard);
-            dashboardContent.Controls.Add(printerStatusCard);
+            dashboardContent.Controls.Add(labelClientId);
 
             // 
             // Printer Aktif card
             // 
             var printerCard = new RoundedPanel
             {
-                Location = new Point(0, 260),
-                Size = new Size(980, 172),
+                Location = new Point(540, 52),
+                Size = new Size(480, 224),
                 CornerRadius = 10,
                 FillColor = Color.White,
                 BorderColor = UiTheme.Border
@@ -264,24 +255,25 @@ namespace PrintForm
 
             comboPrinters.DropDownStyle = ComboBoxStyle.DropDownList;
             comboPrinters.FormattingEnabled = true;
-            comboPrinters.Location = new Point(22, 58);
+            comboPrinters.Location = new Point(24, 74);
             comboPrinters.Name = "comboPrinters";
-            comboPrinters.Size = new Size(470, 31);
+            comboPrinters.Size = new Size(432, 31);
             comboPrinters.Font = new Font("Segoe UI", 11.5F, FontStyle.Regular);
             comboPrinters.TabIndex = 1;
 
             var printerInfo = new Label
             {
                 AutoSize = false,
-                Location = new Point(22, 98),
-                Size = new Size(920, 26),
+                Location = new Point(24, 114),
+                Size = new Size(432, 42),
                 Font = new Font("Segoe UI", 10F, FontStyle.Regular),
                 ForeColor = UiTheme.MutedText,
-                Text = "Dokumen dicetak menyesuaikan area cetak printer terpilih agar konten tidak terpotong."
+                Text = "Dokumen dicetak menyesuaikan area cetak printer terpilih agar konten tidak terpotong.",
+                TextAlign = ContentAlignment.TopLeft
             };
 
-            alertPairing.Location = new Point(22, 126);
-            alertPairing.Size = new Size(936, 34);
+            alertPairing.Location = new Point(24, 172);
+            alertPairing.Size = new Size(432, 34);
             alertPairing.CornerRadius = 8;
             alertPairing.FillColor = Color.FromArgb(255, 247, 244);
             alertPairing.BorderColor = Color.FromArgb(255, 211, 198);
@@ -312,21 +304,23 @@ namespace PrintForm
             // 
             var actionIcon = new IconBadge
             {
-                Location = new Point(0, 452),
-                Size = new Size(28, 28),
+                Location = new Point(0, 0),
+                Size = new Size(1, 1),
                 Kind = IconKind.Lightning,
                 Circle = false,
-                IconColor = UiTheme.Accent
+                IconColor = UiTheme.Accent,
+                Visible = false
             };
 
             var actionTitle = new Label
             {
                 AutoSize = false,
-                Location = new Point(40, 454),
-                Size = new Size(300, 30),
+                Location = new Point(0, 0),
+                Size = new Size(1, 1),
                 Font = new Font("Segoe UI", 14F, FontStyle.Bold),
                 ForeColor = UiTheme.Text,
-                Text = "Aksi Cepat"
+                Text = "Aksi Cepat",
+                Visible = false
             };
 
             dashboardContent.Controls.Add(actionIcon);
@@ -335,27 +329,27 @@ namespace PrintForm
             // 
             // Buttons
             // 
-            btnJobList.Location = new Point(0, 490);
+            btnJobList.Location = new Point(0, 306);
             btnJobList.Name = "btnJobList";
-            btnJobList.Size = new Size(360, 62);
+            btnJobList.Size = new Size(1020, 56);
             btnJobList.TabIndex = 2;
             btnJobList.Text = "Daftar Tugas Cetak";
             btnJobList.IconKind = IconKind.Document;
             btnJobList.UseAccentFill = true;
             btnJobList.Click += btnJobList_Click;
 
-            btnSettings.Location = new Point(380, 490);
+            btnSettings.Location = new Point(850, 30);
             btnSettings.Name = "btnSettings";
-            btnSettings.Size = new Size(290, 62);
+            btnSettings.Size = new Size(150, 44);
             btnSettings.TabIndex = 3;
             btnSettings.Text = "Pengaturan";
             btnSettings.IconKind = IconKind.Settings;
             btnSettings.UseAccentFill = false;
             btnSettings.Click += btnSettings_Click;
 
-            btnLogin.Location = new Point(690, 490);
+            btnLogin.Location = new Point(680, 30);
             btnLogin.Name = "btnLogin";
-            btnLogin.Size = new Size(290, 62);
+            btnLogin.Size = new Size(158, 44);
             btnLogin.TabIndex = 4;
             btnLogin.Text = "Pair Akun";
             btnLogin.IconKind = IconKind.Account;
@@ -363,8 +357,8 @@ namespace PrintForm
             btnLogin.Click += btnLogin_Click;
 
             dashboardContent.Controls.Add(btnJobList);
-            dashboardContent.Controls.Add(btnSettings);
-            dashboardContent.Controls.Add(btnLogin);
+            dashboardHeaderContent.Controls.Add(btnLogin);
+            dashboardHeaderContent.Controls.Add(btnSettings);
 
             contentPanel.Controls.Add(dashboardContent);
 
@@ -387,7 +381,7 @@ namespace PrintForm
             statusStrip1.Items.AddRange(new ToolStripItem[] { statusLabel });
             statusStrip1.Name = "statusStrip1";
             statusStrip1.Padding = new Padding(32, 4, 0, 4);
-            statusStrip1.Size = new Size(1180, 32);
+            statusStrip1.Size = new Size(1100, 32);
             statusStrip1.SizingGrip = false;
             statusStrip1.TabIndex = 5;
             statusStrip1.Text = "statusStrip1";
@@ -429,7 +423,7 @@ namespace PrintForm
             var card = new RoundedPanel
             {
                 Location = location,
-                Size = new Size(480, 92),
+                Size = new Size(490, 104),
                 CornerRadius = 10,
                 FillColor = Color.White,
                 BorderColor = UiTheme.Border
@@ -437,8 +431,8 @@ namespace PrintForm
 
             var iconBadge = new IconBadge
             {
-                Location = new Point(20, 18),
-                Size = new Size(56, 56),
+                Location = new Point(20, 22),
+                Size = new Size(60, 60),
                 Kind = iconKind,
                 Circle = true,
                 CircleBackColor = iconBackground,
@@ -448,9 +442,9 @@ namespace PrintForm
             var titleLabel = new Label
             {
                 AutoSize = false,
-                Location = new Point(102, 20),
-                Size = new Size(330, 26),
-                Font = new Font("Segoe UI", 11.5F, FontStyle.Bold),
+                Location = new Point(108, 24),
+                Size = new Size(330, 28),
+                Font = new Font("Segoe UI", 12F, FontStyle.Bold),
                 ForeColor = UiTheme.Text,
                 Text = title
             };
@@ -458,8 +452,8 @@ namespace PrintForm
             valueLabel = new Label
             {
                 AutoSize = false,
-                Location = new Point(102, 49),
-                Size = new Size(350, 28),
+                Location = new Point(108, 54),
+                Size = new Size(350, 30),
                 Font = new Font("Segoe UI", 11F, FontStyle.Regular),
                 ForeColor = UiTheme.MutedText,
                 AutoEllipsis = true,
