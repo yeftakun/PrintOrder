@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
@@ -21,13 +25,24 @@ namespace PrintForm
             PropertyNameCaseInsensitive = true
         };
 
-        private readonly DataGridView _grid = new DataGridView();
-        private readonly Button _refreshButton = new Button();
+        private readonly TextBox _searchTextBox = new TextBox();
+        private readonly JobCommandButton _refreshButton = new JobCommandButton();
         private readonly Label _statusLabel = new Label();
+        private readonly FlowLayoutPanel _jobRowsPanel = new FlowLayoutPanel();
+        private readonly Label _emptyStateLabel = new Label();
+        private readonly JobCommandButton _filterButton = new JobCommandButton();
+        private readonly MetricCard _totalMetric = new MetricCard("Total", UiTheme.Accent);
+        private readonly MetricCard _readyMetric = new MetricCard("Siap", UiTheme.Success);
+        private readonly MetricCard _pendingMetric = new MetricCard("Tertunda", JobVisuals.Warning);
+        private readonly MetricCard _cancelledMetric = new MetricCard("Batal", JobVisuals.Danger);
+        private readonly MetricCard _doneMetric = new MetricCard("Berhasil", JobVisuals.Done);
+        private readonly List<PrintJob> _allJobs = new List<PrintJob>();
         private readonly System.Windows.Forms.Timer _refreshTimer = new System.Windows.Forms.Timer
         {
             Interval = 5000
         };
+
+        private JobFilterState _filterState = JobFilterState.Default;
         private bool _isLoading;
         private bool _pendingRefresh;
 
@@ -44,91 +59,15 @@ namespace PrintForm
             _printJobAsync = printJobAsync;
             _rejectJobAsync = rejectJobAsync;
 
-            Text = "Job List";
+            AutoScaleMode = AutoScaleMode.Dpi;
+            BackColor = UiTheme.PageBackground;
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular);
+            MinimumSize = new Size(980, 560);
+            Size = new Size(1180, 720);
             StartPosition = FormStartPosition.CenterParent;
-            Size = new Size(780, 420);
+            Text = "Daftar Tugas Cetak";
 
-            var toolbar = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Top,
-                Height = 40,
-                Padding = new Padding(8),
-                AutoSize = false
-            };
-
-            _refreshButton.Text = "Refresh";
-            _refreshButton.AutoSize = true;
-            _refreshButton.Click += async (_, _) => await LoadJobsAsync();
-
-            _statusLabel.AutoSize = true;
-            _statusLabel.Padding = new Padding(8, 8, 0, 0);
-
-            toolbar.Controls.Add(_refreshButton);
-            toolbar.Controls.Add(_statusLabel);
-
-            _grid.Dock = DockStyle.Fill;
-            _grid.AllowUserToAddRows = false;
-            _grid.AllowUserToDeleteRows = false;
-            _grid.ReadOnly = true;
-            _grid.MultiSelect = false;
-            _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            _grid.RowHeadersVisible = false;
-            _grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
-            _grid.CellContentClick += Grid_CellContentClick;
-
-            _grid.Columns.Add(new DataGridViewTextBoxColumn
-            {
-                Name = "colDoc",
-                HeaderText = "Dokumen",
-                FillWeight = 25
-            });
-            _grid.Columns.Add(new DataGridViewTextBoxColumn
-            {
-                Name = "colAlias",
-                HeaderText = "Alias",
-                FillWeight = 12
-            });
-            _grid.Columns.Add(new DataGridViewTextBoxColumn
-            {
-                Name = "colPaper",
-                HeaderText = "Kertas",
-                FillWeight = 10
-            });
-            _grid.Columns.Add(new DataGridViewTextBoxColumn
-            {
-                Name = "colCopies",
-                HeaderText = "Salinan",
-                FillWeight = 10
-            });
-            _grid.Columns.Add(new DataGridViewTextBoxColumn
-            {
-                Name = "colStatus",
-                HeaderText = "Status",
-                FillWeight = 10
-            });
-            _grid.Columns.Add(new DataGridViewTextBoxColumn
-            {
-                Name = "colTime",
-                HeaderText = "Waktu",
-                FillWeight = 18
-            });
-            _grid.Columns.Add(new DataGridViewButtonColumn
-            {
-                Name = "colPrint",
-                HeaderText = "Aksi",
-                UseColumnTextForButtonValue = false,
-                FillWeight = 10
-            });
-            _grid.Columns.Add(new DataGridViewButtonColumn
-            {
-                Name = "colReject",
-                HeaderText = "Tolak",
-                UseColumnTextForButtonValue = false,
-                FillWeight = 10
-            });
-
-            Controls.Add(_grid);
-            Controls.Add(toolbar);
+            BuildLayout();
 
             Shown += async (_, _) => await LoadJobsAsync();
             _refreshTimer.Tick += async (_, _) => await LoadJobsAsync();
@@ -151,85 +90,523 @@ namespace PrintForm
             _ = LoadJobsAsync();
         }
 
-        private async void Grid_CellContentClick(object? sender, DataGridViewCellEventArgs e)
+        private void BuildLayout()
         {
-            if (e.RowIndex < 0 || e.ColumnIndex < 0)
+            var root = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = UiTheme.PageBackground,
+                ColumnCount = 1,
+                RowCount = 4
+            };
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 158));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 120));
+            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
+
+            root.Controls.Add(BuildHeader(), 0, 0);
+            root.Controls.Add(BuildToolbar(), 0, 1);
+            root.Controls.Add(BuildJobTable(), 0, 2);
+            root.Controls.Add(BuildFooter(), 0, 3);
+
+            Controls.Add(root);
+        }
+
+        private Control BuildHeader()
+        {
+            var header = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.White,
+                Padding = new Padding(34, 24, 34, 20)
+            };
+
+            var content = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1,
+                BackColor = Color.White
+            };
+            content.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 126));
+            content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+            var hero = new JobHeroIcon
+            {
+                Dock = DockStyle.Left,
+                Size = new Size(104, 104),
+                Margin = new Padding(0)
+            };
+
+            var titleStack = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 2,
+                BackColor = Color.White,
+                Padding = new Padding(0, 22, 0, 0)
+            };
+            titleStack.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
+            titleStack.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+
+            var title = new Label
+            {
+                Dock = DockStyle.Fill,
+                AutoEllipsis = true,
+                Font = new Font("Segoe UI", 28F, FontStyle.Bold),
+                ForeColor = UiTheme.Text,
+                Text = "Daftar Tugas Cetak",
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+
+            var subtitle = new Label
+            {
+                Dock = DockStyle.Fill,
+                AutoEllipsis = true,
+                Font = new Font("Segoe UI", 12.5F, FontStyle.Regular),
+                ForeColor = UiTheme.MutedText,
+                Text = "Pantau dan proses tugas cetak dari server",
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+
+            titleStack.Controls.Add(title, 0, 0);
+            titleStack.Controls.Add(subtitle, 0, 1);
+
+            content.Controls.Add(hero, 0, 0);
+            content.Controls.Add(titleStack, 1, 0);
+            header.Controls.Add(content);
+
+            return header;
+        }
+
+        private Control BuildToolbar()
+        {
+            var host = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = UiTheme.PageBackground,
+                Padding = new Padding(34, 18, 34, 34)
+            };
+
+            var toolbar = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 58,
+                BackColor = UiTheme.PageBackground
+            };
+
+            var searchBox = BuildSearchBox();
+            var metrics = new FlowLayoutPanel
+            {
+                BackColor = UiTheme.PageBackground,
+                FlowDirection = FlowDirection.RightToLeft,
+                WrapContents = false
+            };
+
+            metrics.Controls.Add(_cancelledMetric);
+            metrics.Controls.Add(_pendingMetric);
+            metrics.Controls.Add(_doneMetric);
+            metrics.Controls.Add(_readyMetric);
+            metrics.Controls.Add(_totalMetric);
+
+            _filterButton.Text = string.Empty;
+            _filterButton.Glyph = JobGlyph.Filter;
+            _filterButton.Filled = false;
+            _filterButton.AccentColor = UiTheme.Text;
+            _filterButton.Click += (_, _) => ShowFilterDialog();
+
+            _refreshButton.Text = "Refresh";
+            _refreshButton.Glyph = JobGlyph.Refresh;
+            _refreshButton.Filled = false;
+            _refreshButton.AccentColor = UiTheme.Accent;
+            _refreshButton.Click += async (_, _) => await LoadJobsAsync();
+
+            toolbar.Controls.Add(searchBox);
+            toolbar.Controls.Add(_filterButton);
+            toolbar.Controls.Add(_refreshButton);
+            toolbar.Controls.Add(metrics);
+            toolbar.Resize += (_, _) => ArrangeToolbarControls(toolbar, searchBox, metrics);
+            toolbar.HandleCreated += (_, _) => ArrangeToolbarControls(toolbar, searchBox, metrics);
+
+            host.Controls.Add(toolbar);
+
+            return host;
+        }
+
+        private void ArrangeToolbarControls(Panel toolbar, Control searchBox, FlowLayoutPanel metrics)
+        {
+            const int controlHeight = 44;
+            const int gap = 10;
+            const int filterWidth = 48;
+            const int refreshWidth = 112;
+            const int metricsWidth = 520;
+
+            var top = Math.Max(0, (toolbar.ClientSize.Height - controlHeight) / 2);
+            var metricsActualWidth = Math.Min(metricsWidth, Math.Max(0, toolbar.ClientSize.Width / 2 - gap));
+            var rightEdge = toolbar.ClientSize.Width;
+
+            metrics.SetBounds(
+                Math.Max(0, rightEdge - metricsActualWidth),
+                0,
+                metricsActualWidth,
+                toolbar.ClientSize.Height);
+
+            var commandRight = Math.Max(0, metrics.Left - 28);
+            var refreshLeft = Math.Max(0, commandRight - refreshWidth);
+            var filterLeft = Math.Max(0, refreshLeft - gap - filterWidth);
+            var searchWidth = Math.Max(180, filterLeft - gap);
+
+            searchBox.SetBounds(0, top, searchWidth, controlHeight);
+            _filterButton.SetBounds(filterLeft, top, filterWidth, controlHeight);
+            _refreshButton.SetBounds(refreshLeft, top, refreshWidth, controlHeight);
+
+            var showMetrics = toolbar.ClientSize.Width >= 850;
+            metrics.Visible = showMetrics;
+            if (!showMetrics)
+            {
+                var compactCommandRight = toolbar.ClientSize.Width;
+                refreshLeft = Math.Max(0, compactCommandRight - refreshWidth);
+                filterLeft = Math.Max(0, refreshLeft - gap - filterWidth);
+                searchWidth = Math.Max(180, filterLeft - gap);
+
+                searchBox.SetBounds(0, top, searchWidth, controlHeight);
+                _filterButton.SetBounds(filterLeft, top, filterWidth, controlHeight);
+                _refreshButton.SetBounds(refreshLeft, top, refreshWidth, controlHeight);
+            }
+        }
+
+        private Control BuildSearchBox()
+        {
+            var searchHost = new RoundedPanel
+            {
+                FillColor = Color.White,
+                BorderColor = Color.FromArgb(215, 219, 226),
+                CornerRadius = 12,
+                Padding = new Padding(46, 8, 12, 7)
+            };
+
+            var icon = new GlyphView
+            {
+                Glyph = JobGlyph.Search,
+                GlyphColor = UiTheme.Text,
+                Size = new Size(24, 24),
+                Location = new Point(17, 10),
+                Anchor = AnchorStyles.Left | AnchorStyles.Top
+            };
+
+            _searchTextBox.BorderStyle = BorderStyle.None;
+            _searchTextBox.Dock = DockStyle.Fill;
+            _searchTextBox.Font = new Font("Segoe UI", 10F, FontStyle.Regular);
+            _searchTextBox.ForeColor = UiTheme.Text;
+            _searchTextBox.PlaceholderText = "Cari dokumen, alias, atau kertas";
+            _searchTextBox.TextChanged += (_, _) => RenderFilteredJobs();
+
+            searchHost.Controls.Add(_searchTextBox);
+            searchHost.Controls.Add(icon);
+
+            return searchHost;
+        }
+
+        private Control BuildJobTable()
+        {
+            var tableCard = new RoundedPanel
+            {
+                Dock = DockStyle.Fill,
+                FillColor = Color.White,
+                BorderColor = UiTheme.Border,
+                CornerRadius = 14,
+                Padding = new Padding(16, 16, 16, 14),
+                Margin = new Padding(34, 0, 34, 0)
+            };
+
+            var table = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.White,
+                ColumnCount = 1,
+                RowCount = 2
+            };
+            table.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
+            table.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+            table.Controls.Add(BuildTableHeader(), 0, 0);
+
+            var bodyHost = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.White,
+                Margin = new Padding(0)
+            };
+
+            _jobRowsPanel.Dock = DockStyle.Fill;
+            _jobRowsPanel.AutoScroll = true;
+            _jobRowsPanel.BackColor = Color.White;
+            _jobRowsPanel.FlowDirection = FlowDirection.TopDown;
+            _jobRowsPanel.WrapContents = false;
+            _jobRowsPanel.Padding = new Padding(0, 2, 0, 0);
+            _jobRowsPanel.SizeChanged += (_, _) => ResizeRowsToPanel();
+
+            _emptyStateLabel.Dock = DockStyle.Fill;
+            _emptyStateLabel.Font = new Font("Segoe UI", 12F, FontStyle.Regular);
+            _emptyStateLabel.ForeColor = UiTheme.MutedText;
+            _emptyStateLabel.Text = "Belum ada tugas cetak untuk sesi aktif.";
+            _emptyStateLabel.TextAlign = ContentAlignment.MiddleCenter;
+            _emptyStateLabel.Visible = false;
+
+            bodyHost.Controls.Add(_emptyStateLabel);
+            bodyHost.Controls.Add(_jobRowsPanel);
+            table.Controls.Add(bodyHost, 0, 1);
+
+            tableCard.Controls.Add(table);
+            return tableCard;
+        }
+
+        private Control BuildTableHeader()
+        {
+            var header = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.White,
+                ColumnCount = JobColumnLayout.ColumnCount,
+                RowCount = 1,
+                Padding = new Padding(18, 0, 16, 0),
+                Margin = new Padding(0)
+            };
+            JobColumnLayout.Apply(header);
+
+            header.Controls.Add(CreateHeaderLabel("Dokumen", ContentAlignment.MiddleLeft), 0, 0);
+            header.Controls.Add(CreateHeaderLabel("Alias", ContentAlignment.MiddleLeft), 1, 0);
+            header.Controls.Add(CreateHeaderLabel("Kertas", ContentAlignment.MiddleLeft), 2, 0);
+            header.Controls.Add(CreateHeaderLabel("Salinan", ContentAlignment.MiddleCenter), 3, 0);
+            header.Controls.Add(CreateHeaderLabel("Status", ContentAlignment.MiddleLeft), 4, 0);
+            header.Controls.Add(CreateHeaderLabel("Waktu", ContentAlignment.MiddleLeft), 5, 0);
+            header.Controls.Add(CreateHeaderLabel("Aksi", ContentAlignment.MiddleLeft), 6, 0);
+
+            return header;
+        }
+
+        private static Label CreateHeaderLabel(string text, ContentAlignment alignment)
+        {
+            return new Label
+            {
+                Dock = DockStyle.Fill,
+                AutoEllipsis = true,
+                Font = new Font("Segoe UI", 10.2F, FontStyle.Bold),
+                ForeColor = UiTheme.Text,
+                Text = text,
+                TextAlign = alignment
+            };
+        }
+
+        private Control BuildFooter()
+        {
+            var footer = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = UiTheme.PageBackground,
+                Padding = new Padding(34, 0, 34, 12)
+            };
+
+            var content = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = UiTheme.PageBackground
+            };
+
+            var check = new GlyphView
+            {
+                Glyph = JobGlyph.CheckCircle,
+                GlyphColor = UiTheme.Success,
+                Size = new Size(30, 30),
+                Location = new Point(0, 10)
+            };
+
+            _statusLabel.AutoEllipsis = true;
+            _statusLabel.Font = new Font("Segoe UI", 10.5F, FontStyle.Regular);
+            _statusLabel.ForeColor = UiTheme.MutedText;
+            _statusLabel.Location = new Point(42, 11);
+            _statusLabel.Size = new Size(900, 28);
+            _statusLabel.Anchor = AnchorStyles.Left | AnchorStyles.Top | AnchorStyles.Right;
+            _statusLabel.Text = "Sinkronisasi aktif - tugas baru akan muncul otomatis";
+            _statusLabel.TextAlign = ContentAlignment.MiddleLeft;
+
+            content.Controls.Add(_statusLabel);
+            content.Controls.Add(check);
+            footer.Controls.Add(content);
+
+            return footer;
+        }
+
+        private async Task LoadJobsAsync()
+        {
+            if (_isLoading)
+            {
+                _pendingRefresh = true;
+                return;
+            }
+
+            _isLoading = true;
+            SetBusy(true);
+
+            try
+            {
+                var clientId = _getClientId();
+                if (string.IsNullOrWhiteSpace(clientId))
+                {
+                    _statusLabel.Text = "Client belum terhubung.";
+                    _allJobs.Clear();
+                    UpdateMetrics(_allJobs);
+                    RenderFilteredJobs();
+                    return;
+                }
+
+                _statusLabel.Text = "Memuat tugas cetak...";
+
+                var encodedClientId = Uri.EscapeDataString(clientId);
+                using var request = new HttpRequestMessage(
+                    HttpMethod.Get,
+                    $"{_serverBaseUrl}/api/jobs?claimClientId={encodedClientId}&activeSessionOnly=true");
+                using var response = await _sendAuthorizedAsync(request);
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    _statusLabel.Text = "Perlu login mitra untuk melihat job.";
+                    _allJobs.Clear();
+                    UpdateMetrics(_allJobs);
+                    RenderFilteredJobs();
+                    return;
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _statusLabel.Text = "Gagal memuat job.";
+                    return;
+                }
+
+                var body = await response.Content.ReadAsStringAsync();
+                var jobs = DeserializeVisibleJobs(body);
+
+                _allJobs.Clear();
+                _allJobs.AddRange(jobs);
+                UpdateMetrics(_allJobs);
+                RenderFilteredJobs();
+                _statusLabel.Text = $"{jobs.Count} tugas diterima";
+            }
+            catch
+            {
+                _statusLabel.Text = "Tidak bisa terhubung ke server.";
+            }
+            finally
+            {
+                _isLoading = false;
+                SetBusy(false);
+
+                if (_pendingRefresh)
+                {
+                    _pendingRefresh = false;
+                    _ = LoadJobsAsync();
+                }
+            }
+        }
+
+        private void SetBusy(bool busy)
+        {
+            _refreshButton.Enabled = !busy;
+            _filterButton.Enabled = !busy;
+            _searchTextBox.Enabled = !busy;
+
+            foreach (Control control in _jobRowsPanel.Controls)
+            {
+                if (control is JobRowControl row)
+                {
+                    row.SetActionsEnabled(!busy);
+                }
+            }
+        }
+
+        private void ShowFilterDialog()
+        {
+            using var dialog = new JobFilterDialog(_filterState, _allJobs);
+            if (dialog.ShowDialog(this) != DialogResult.OK)
             {
                 return;
             }
 
-            var row = _grid.Rows[e.RowIndex];
-            if (row.Tag is not PrintJob job)
+            _filterState = dialog.SelectedFilter;
+            UpdateFilterButton();
+            RenderFilteredJobs();
+        }
+
+        private void UpdateFilterButton()
+        {
+            var activeCount = _filterState.ActiveFilterCount;
+            _filterButton.Text = activeCount == 0 ? string.Empty : activeCount.ToString();
+            _filterButton.AccentColor = activeCount == 0 ? UiTheme.Text : UiTheme.Accent;
+            _filterButton.Invalidate();
+        }
+
+        private async Task HandlePrintActionAsync(PrintJob job)
+        {
+            var latestJob = await FetchJobAsync(job.Id);
+            if (latestJob == null)
             {
-                return;
-            }
-
-            var columnName = _grid.Columns[e.ColumnIndex].Name;
-            if (columnName == "colPrint")
-            {
-                var latestJob = await FetchJobAsync(job.Id);
-                if (latestJob == null)
-                {
-                    _statusLabel.Text = "Job tidak ditemukan atau sudah dihapus.";
-                    await LoadJobsAsync();
-                    return;
-                }
-
-                job = latestJob;
-                if (!string.Equals(job.Status, "ready", StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(job.Status, "pending", StringComparison.OrdinalIgnoreCase))
-                {
-                    _statusLabel.Text = $"Job sudah berubah status ({job.Status}).";
-                    await LoadJobsAsync();
-                    return;
-                }
-
-                _statusLabel.Text = $"Mencetak {job.OriginalName}...";
-                _refreshButton.Enabled = false;
-                try
-                {
-                    await _printJobAsync(job);
-                }
-                finally
-                {
-                    _refreshButton.Enabled = true;
-                }
-
+                _statusLabel.Text = "Job tidak ditemukan atau sudah dihapus.";
                 await LoadJobsAsync();
                 return;
             }
 
-            if (columnName == "colReject")
+            job = latestJob;
+            if (!string.Equals(job.Status, "ready", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(job.Status, "pending", StringComparison.OrdinalIgnoreCase))
             {
-                var latestJob = await FetchJobAsync(job.Id);
-                if (latestJob == null)
-                {
-                    _statusLabel.Text = "Job tidak ditemukan atau sudah dihapus.";
-                    await LoadJobsAsync();
-                    return;
-                }
-
-                job = latestJob;
-                if (!string.Equals(job.Status, "ready", StringComparison.OrdinalIgnoreCase))
-                {
-                    _statusLabel.Text = $"Job sudah berubah status ({job.Status}).";
-                    await LoadJobsAsync();
-                    return;
-                }
-
-                _statusLabel.Text = $"Menolak {job.OriginalName}...";
-                _refreshButton.Enabled = false;
-                try
-                {
-                    await _rejectJobAsync(job);
-                }
-                finally
-                {
-                    _refreshButton.Enabled = true;
-                }
-
+                _statusLabel.Text = $"Job sudah berubah status ({job.Status}).";
                 await LoadJobsAsync();
+                return;
             }
+
+            _statusLabel.Text = $"Mencetak {job.OriginalName}...";
+            SetBusy(true);
+            try
+            {
+                await _printJobAsync(job);
+            }
+            finally
+            {
+                SetBusy(false);
+            }
+
+            await LoadJobsAsync();
+        }
+
+        private async Task HandleRejectActionAsync(PrintJob job)
+        {
+            var latestJob = await FetchJobAsync(job.Id);
+            if (latestJob == null)
+            {
+                _statusLabel.Text = "Job tidak ditemukan atau sudah dihapus.";
+                await LoadJobsAsync();
+                return;
+            }
+
+            job = latestJob;
+            if (!string.Equals(job.Status, "ready", StringComparison.OrdinalIgnoreCase))
+            {
+                _statusLabel.Text = $"Job sudah berubah status ({job.Status}).";
+                await LoadJobsAsync();
+                return;
+            }
+
+            _statusLabel.Text = $"Menolak {job.OriginalName}...";
+            SetBusy(true);
+            try
+            {
+                await _rejectJobAsync(job);
+            }
+            finally
+            {
+                SetBusy(false);
+            }
+
+            await LoadJobsAsync();
         }
 
         private async Task<PrintJob?> FetchJobAsync(string jobId)
@@ -256,65 +633,6 @@ namespace PrintForm
             {
                 _statusLabel.Text = "Gagal memeriksa status job.";
                 return null;
-            }
-        }
-
-        private async Task LoadJobsAsync()
-        {
-            if (_isLoading)
-            {
-                _pendingRefresh = true;
-                return;
-            }
-
-            _isLoading = true;
-            var clientId = _getClientId();
-            if (string.IsNullOrWhiteSpace(clientId))
-            {
-                _statusLabel.Text = "Client belum terhubung.";
-                _grid.Rows.Clear();
-                _isLoading = false;
-                return;
-            }
-
-            try
-            {
-                var encodedClientId = Uri.EscapeDataString(clientId);
-                using var request = new HttpRequestMessage(
-                    HttpMethod.Get,
-                    $"{_serverBaseUrl}/api/jobs?claimClientId={encodedClientId}&activeSessionOnly=true");
-                using var response = await _sendAuthorizedAsync(request);
-                if (response.StatusCode == HttpStatusCode.Unauthorized)
-                {
-                    _statusLabel.Text = "Perlu login mitra untuk melihat job.";
-                    _grid.Rows.Clear();
-                    return;
-                }
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    _statusLabel.Text = "Gagal memuat job.";
-                    return;
-                }
-
-                var body = await response.Content.ReadAsStringAsync();
-                var jobs = DeserializeVisibleJobs(body);
-
-                RenderJobs(jobs);
-                _statusLabel.Text = $"Total job: {jobs.Count}";
-            }
-            catch
-            {
-                _statusLabel.Text = "Tidak bisa terhubung ke server.";
-            }
-            finally
-            {
-                _isLoading = false;
-                if (_pendingRefresh)
-                {
-                    _pendingRefresh = false;
-                    _ = LoadJobsAsync();
-                }
             }
         }
 
@@ -371,6 +689,88 @@ namespace PrintForm
             if (job != null)
             {
                 jobs.Add(job);
+            }
+        }
+
+        private void UpdateMetrics(IReadOnlyCollection<PrintJob> jobs)
+        {
+            _totalMetric.SetValue(jobs.Count.ToString());
+            _readyMetric.SetValue(jobs.Count(job => JobVisuals.IsStatus(job.Status, "ready")).ToString());
+            _pendingMetric.SetValue(jobs.Count(job => JobVisuals.IsStatus(job.Status, "pending")).ToString());
+            _cancelledMetric.SetValue(jobs.Count(job => JobVisuals.IsStatus(job.Status, "rejected")).ToString());
+            _doneMetric.SetValue(jobs.Count(job => JobVisuals.IsStatus(job.Status, "done")).ToString());
+        }
+
+        private void RenderFilteredJobs()
+        {
+            var query = (_searchTextBox.Text ?? string.Empty).Trim();
+            var jobs = _allJobs
+                .Where(job => string.IsNullOrWhiteSpace(query) || MatchesSearch(job, query))
+                .Where(job => _filterState.Matches(job))
+                .ToList();
+
+            RenderJobRows(jobs);
+            _statusLabel.Text = jobs.Count == _allJobs.Count
+                ? $"{_allJobs.Count} tugas tersinkron - sesi aktif saja"
+                : $"Menampilkan {jobs.Count} dari {_allJobs.Count} tugas - sesi aktif saja";
+        }
+
+        private static bool MatchesSearch(PrintJob job, string query)
+        {
+            return Contains(job.OriginalName, query)
+                || Contains(job.Alias, query)
+                || Contains(job.PrintConfig?.PaperSize, query)
+                || Contains(JobVisuals.GetStatusLabel(job.Status), query);
+        }
+
+        private static bool Contains(string? source, string query)
+        {
+            return !string.IsNullOrWhiteSpace(source)
+                && source.Contains(query, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void RenderJobRows(IReadOnlyCollection<PrintJob> jobs)
+        {
+            _jobRowsPanel.SuspendLayout();
+            try
+            {
+                _jobRowsPanel.Controls.Clear();
+
+                foreach (var job in jobs)
+                {
+                    var row = new JobRowControl(job);
+                    row.PrintRequested += async (_, _) => await HandlePrintActionAsync(job);
+                    row.RejectRequested += async (_, _) => await HandleRejectActionAsync(job);
+                    _jobRowsPanel.Controls.Add(row);
+                }
+
+                ResizeRowsToPanel();
+            }
+            finally
+            {
+                _jobRowsPanel.ResumeLayout();
+            }
+
+            _emptyStateLabel.Text = _allJobs.Count == 0
+                ? "Belum ada tugas cetak untuk sesi aktif."
+                : "Tidak ada tugas yang cocok dengan pencarian.";
+            _emptyStateLabel.Visible = jobs.Count == 0;
+            _jobRowsPanel.Visible = jobs.Count > 0;
+        }
+
+        private void ResizeRowsToPanel()
+        {
+            var width = _jobRowsPanel.ClientSize.Width;
+            if (_jobRowsPanel.VerticalScroll.Visible)
+            {
+                width -= SystemInformation.VerticalScrollBarWidth + 4;
+            }
+
+            width = Math.Max(640, width - 4);
+
+            foreach (Control control in _jobRowsPanel.Controls)
+            {
+                control.Width = width;
             }
         }
 
@@ -496,66 +896,1503 @@ namespace PrintForm
             return false;
         }
 
-        private void RenderJobs(List<PrintJob> jobs)
-        {
-            _grid.Rows.Clear();
-            foreach (var job in jobs)
-            {
-                var paper = job.PrintConfig?.PaperSize ?? "-";
-                var copies = job.PrintConfig?.Copies.ToString() ?? "-";
-                var timeText = job.CreatedAt;
-                if (DateTime.TryParse(job.CreatedAt, out var dt))
-                {
-                    timeText = dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
-                }
-                var alias = string.IsNullOrWhiteSpace(job.Alias) ? "-" : job.Alias;
-
-                var displayStatus = GetStatusLabel(job.Status);
-                var rowIndex = _grid.Rows.Add(job.OriginalName, alias, paper, copies, displayStatus, timeText);
-                var row = _grid.Rows[rowIndex];
-                row.Tag = job;
-
-                var buttonCell = (DataGridViewButtonCell)row.Cells["colPrint"];
-                var rejectCell = (DataGridViewButtonCell)row.Cells["colReject"];
-                if (string.Equals(job.Status, "ready", StringComparison.OrdinalIgnoreCase))
-                {
-                    buttonCell.Value = "Print";
-                    rejectCell.Value = "Tolak";
-                    row.Cells["colReject"].Style.ForeColor = Color.Black;
-                }
-                else if (string.Equals(job.Status, "pending", StringComparison.OrdinalIgnoreCase))
-                {
-                    buttonCell.Value = "Retry";
-                    rejectCell.Value = "-";
-                    row.Cells["colReject"].Style.ForeColor = Color.Gray;
-                }
-                else
-                {
-                    buttonCell.Value = "-";
-                    row.Cells["colPrint"].Style.ForeColor = Color.Gray;
-                    rejectCell.Value = "-";
-                    row.Cells["colReject"].Style.ForeColor = Color.Gray;
-                }
-            }
-        }
-
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             _refreshTimer.Stop();
             _refreshTimer.Dispose();
             base.OnFormClosed(e);
         }
+    }
 
-        private static string GetStatusLabel(string? status)
+    internal sealed class JobRowControl : RoundedPanel
+    {
+        private readonly JobCommandButton _printButton = new JobCommandButton();
+        private readonly JobCommandButton _rejectButton = new JobCommandButton();
+        private readonly bool _canPrint;
+        private readonly bool _canReject;
+
+        public event EventHandler? PrintRequested;
+        public event EventHandler? RejectRequested;
+
+        public JobRowControl(PrintJob job)
+        {
+            CornerRadius = 10;
+            FillColor = Color.White;
+            BorderColor = Color.FromArgb(232, 235, 240);
+            Height = 78;
+            Margin = new Padding(0, 0, 0, 8);
+            Padding = new Padding(1);
+
+            _canPrint = JobVisuals.IsStatus(job.Status, "ready") || JobVisuals.IsStatus(job.Status, "pending");
+            _canReject = JobVisuals.IsStatus(job.Status, "ready");
+
+            BuildLayout(job);
+        }
+
+        public void SetActionsEnabled(bool enabled)
+        {
+            _printButton.Enabled = enabled && _canPrint;
+            _rejectButton.Enabled = enabled && _canReject;
+        }
+
+        private void BuildLayout(PrintJob job)
+        {
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.White,
+                ColumnCount = JobColumnLayout.ColumnCount,
+                RowCount = 1,
+                Padding = new Padding(18, 8, 16, 8),
+                Margin = new Padding(0)
+            };
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            JobColumnLayout.Apply(layout);
+
+            layout.Controls.Add(BuildDocumentCell(job), 0, 0);
+            layout.Controls.Add(CreateCellLabel(string.IsNullOrWhiteSpace(job.Alias) ? "-" : job.Alias, ContentAlignment.MiddleLeft), 1, 0);
+            layout.Controls.Add(CreateCellLabel(job.PrintConfig?.PaperSize ?? "-", ContentAlignment.MiddleLeft), 2, 0);
+            layout.Controls.Add(CreateCellLabel(ResolveCopies(job), ContentAlignment.MiddleCenter), 3, 0);
+            layout.Controls.Add(BuildStatusCell(job.Status), 4, 0);
+            layout.Controls.Add(CreateCellLabel(FormatTime(job.CreatedAt), ContentAlignment.MiddleLeft), 5, 0);
+            layout.Controls.Add(BuildActionCell(job), 6, 0);
+
+            Controls.Add(layout);
+        }
+
+        private Control BuildDocumentCell(PrintJob job)
+        {
+            var panel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.White,
+                ColumnCount = 2,
+                RowCount = 1,
+                Margin = new Padding(0)
+            };
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 54));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+            var icon = new DocumentTypeIcon
+            {
+                Extension = Path.GetExtension(job.OriginalName),
+                Size = new Size(38, 44),
+                Anchor = AnchorStyles.Left,
+                Margin = new Padding(0, 0, 14, 0)
+            };
+
+            var label = CreateCellLabel(job.OriginalName, ContentAlignment.MiddleLeft);
+
+            panel.Controls.Add(icon, 0, 0);
+            panel.Controls.Add(label, 1, 0);
+
+            return panel;
+        }
+
+        private static Control BuildStatusCell(string? status)
+        {
+            var panel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.White,
+                ColumnCount = 1,
+                RowCount = 3,
+                Margin = new Padding(0)
+            };
+            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+            panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+
+            var pill = new StatusPill(status)
+            {
+                Anchor = AnchorStyles.Left,
+                Margin = new Padding(0),
+                Size = new Size(110, 34)
+            };
+            panel.Controls.Add(pill, 0, 1);
+
+            return panel;
+        }
+
+        private Control BuildActionCell(PrintJob job)
+        {
+            var panel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.White,
+                ColumnCount = 3,
+                RowCount = 3,
+                Margin = new Padding(0)
+            };
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 68));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 76));
+            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+            panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
+            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+
+            _rejectButton.Text = "Tolak";
+            _rejectButton.Dock = DockStyle.Fill;
+            _rejectButton.Margin = new Padding(0, 0, 6, 0);
+            _rejectButton.Filled = false;
+            _rejectButton.AccentColor = UiTheme.Accent;
+            _rejectButton.Enabled = _canReject;
+            _rejectButton.Click += (_, _) =>
+            {
+                if (_rejectButton.Enabled)
+                {
+                    RejectRequested?.Invoke(this, EventArgs.Empty);
+                }
+            };
+
+            _printButton.Text = JobVisuals.IsStatus(job.Status, "pending") ? "Retry" : "Cetak";
+            _printButton.Dock = DockStyle.Fill;
+            _printButton.Margin = new Padding(0);
+            _printButton.Filled = JobVisuals.IsStatus(job.Status, "ready");
+            _printButton.AccentColor = UiTheme.Accent;
+            _printButton.Enabled = _canPrint;
+            _printButton.Click += (_, _) =>
+            {
+                if (_printButton.Enabled)
+                {
+                    PrintRequested?.Invoke(this, EventArgs.Empty);
+                }
+            };
+
+            panel.Controls.Add(_rejectButton, 1, 1);
+            panel.Controls.Add(_printButton, 2, 1);
+
+            return panel;
+        }
+
+        private static Label CreateCellLabel(string? text, ContentAlignment alignment)
+        {
+            return new Label
+            {
+                Dock = DockStyle.Fill,
+                AutoEllipsis = true,
+                Font = new Font("Segoe UI", 10.2F, FontStyle.Regular),
+                ForeColor = Color.FromArgb(74, 82, 96),
+                Text = string.IsNullOrWhiteSpace(text) ? "-" : text,
+                TextAlign = alignment,
+                Margin = new Padding(0)
+            };
+        }
+
+        private static string ResolveCopies(PrintJob job)
+        {
+            return job.PrintConfig == null ? "-" : Math.Max(1, job.PrintConfig.Copies).ToString();
+        }
+
+        private static string FormatTime(string? value)
+        {
+            if (DateTime.TryParse(value, out var dt))
+            {
+                return dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+            }
+
+            return string.IsNullOrWhiteSpace(value) ? "-" : value;
+        }
+    }
+
+    internal sealed class MetricCard : RoundedPanel
+    {
+        private readonly Label _valueLabel;
+        private readonly Label? _suffixLabel;
+
+        public MetricCard(string caption, Color accentColor, string? suffix = null)
+        {
+            Size = new Size(92, 58);
+            Margin = new Padding(7, 0, 0, 0);
+            FillColor = Color.White;
+            BorderColor = Color.FromArgb(
+                Math.Min(255, accentColor.R + 70),
+                Math.Min(255, accentColor.G + 70),
+                Math.Min(255, accentColor.B + 70));
+            CornerRadius = 10;
+            Padding = new Padding(8, 4, 8, 4);
+
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.White,
+                ColumnCount = 1,
+                RowCount = string.IsNullOrWhiteSpace(suffix) ? 2 : 3,
+                Margin = new Padding(0)
+            };
+            if (string.IsNullOrWhiteSpace(suffix))
+            {
+                layout.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
+                layout.RowStyles.Add(new RowStyle(SizeType.Percent, 58));
+            }
+            else
+            {
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 18));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 21));
+                layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            }
+
+            var captionLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                AutoEllipsis = true,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
+                ForeColor = accentColor == UiTheme.Accent ? UiTheme.MutedText : accentColor,
+                Text = caption,
+                TextAlign = ContentAlignment.BottomCenter,
+                Margin = new Padding(0)
+            };
+
+            _valueLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                AutoEllipsis = true,
+                Font = new Font("Segoe UI", string.IsNullOrWhiteSpace(suffix) ? 15F : 14F, FontStyle.Bold),
+                ForeColor = accentColor,
+                Text = "0",
+                TextAlign = string.IsNullOrWhiteSpace(suffix) ? ContentAlignment.TopCenter : ContentAlignment.MiddleCenter,
+                Margin = new Padding(0)
+            };
+
+            layout.Controls.Add(captionLabel, 0, 0);
+            layout.Controls.Add(_valueLabel, 0, 1);
+
+            if (!string.IsNullOrWhiteSpace(suffix))
+            {
+                _suffixLabel = new Label
+                {
+                    Dock = DockStyle.Fill,
+                    AutoEllipsis = true,
+                    Font = new Font("Segoe UI", 8.2F, FontStyle.Regular),
+                    ForeColor = UiTheme.MutedText,
+                    Text = suffix,
+                    TextAlign = ContentAlignment.TopCenter,
+                    Margin = new Padding(0)
+                };
+                layout.Controls.Add(_suffixLabel, 0, 2);
+            }
+
+            Controls.Add(layout);
+        }
+
+        public void SetValue(string value)
+        {
+            _valueLabel.Text = value;
+        }
+    }
+
+    internal sealed class JobFilterDialog : Form
+    {
+        private readonly ComboBox _statusCombo = new ComboBox();
+        private readonly ComboBox _documentTypeCombo = new ComboBox();
+        private readonly ComboBox _paperCombo = new ComboBox();
+        private readonly ComboBox _timeCombo = new ComboBox();
+        private readonly CheckBox _actionableOnlyCheckBox = new CheckBox();
+
+        public JobFilterState SelectedFilter { get; private set; }
+
+        public JobFilterDialog(JobFilterState currentFilter, IReadOnlyCollection<PrintJob> jobs)
+        {
+            SelectedFilter = currentFilter;
+
+            AutoScaleMode = AutoScaleMode.Dpi;
+            BackColor = UiTheme.PageBackground;
+            ClientSize = new Size(460, 396);
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular);
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            ShowInTaskbar = false;
+            StartPosition = FormStartPosition.CenterParent;
+            Text = "Filter Tugas Cetak";
+
+            BuildLayout(jobs, currentFilter);
+        }
+
+        private void BuildLayout(IReadOnlyCollection<PrintJob> jobs, JobFilterState currentFilter)
+        {
+            var root = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = UiTheme.PageBackground,
+                ColumnCount = 2,
+                RowCount = 8,
+                Padding = new Padding(22, 18, 22, 18)
+            };
+            root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 126));
+            root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+
+            var title = new Label
+            {
+                Dock = DockStyle.Fill,
+                Font = new Font("Segoe UI", 17F, FontStyle.Bold),
+                ForeColor = UiTheme.Text,
+                Text = "Filter Tugas Cetak",
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            root.Controls.Add(title, 0, 0);
+            root.SetColumnSpan(title, 2);
+
+            ConfigureCombo(_statusCombo);
+            AddOption(_statusCombo, "Semua status", JobFilterState.All);
+            AddOption(_statusCombo, "Siap", "ready");
+            AddOption(_statusCombo, "Tertunda", "pending");
+            AddOption(_statusCombo, "Gagal", "failed");
+            AddOption(_statusCombo, "Mencetak", "printing");
+            AddOption(_statusCombo, "Berhasil", "done");
+            AddOption(_statusCombo, "Batal", "rejected");
+
+            ConfigureCombo(_documentTypeCombo);
+            AddOption(_documentTypeCombo, "Semua dokumen", JobFilterState.All);
+            AddOption(_documentTypeCombo, "PDF", JobFilterState.DocumentPdf);
+            AddOption(_documentTypeCombo, "Gambar", JobFilterState.DocumentImage);
+            AddOption(_documentTypeCombo, "Lainnya", JobFilterState.DocumentOther);
+
+            ConfigureCombo(_paperCombo);
+            AddOption(_paperCombo, "Semua kertas", JobFilterState.All);
+            foreach (var paperSize in GetPaperSizeOptions(jobs, currentFilter.PaperSize))
+            {
+                AddOption(_paperCombo, paperSize, paperSize);
+            }
+
+            ConfigureCombo(_timeCombo);
+            AddOption(_timeCombo, "Semua waktu", JobFilterState.All);
+            AddOption(_timeCombo, "Hari ini", JobFilterState.TimeToday);
+            AddOption(_timeCombo, "7 hari terakhir", JobFilterState.TimeLast7Days);
+            AddOption(_timeCombo, "Bulan ini", JobFilterState.TimeThisMonth);
+
+            root.Controls.Add(CreateFieldLabel("Status"), 0, 1);
+            root.Controls.Add(_statusCombo, 1, 1);
+            root.Controls.Add(CreateFieldLabel("Dokumen"), 0, 2);
+            root.Controls.Add(_documentTypeCombo, 1, 2);
+            root.Controls.Add(CreateFieldLabel("Kertas"), 0, 3);
+            root.Controls.Add(_paperCombo, 1, 3);
+            root.Controls.Add(CreateFieldLabel("Waktu"), 0, 4);
+            root.Controls.Add(_timeCombo, 1, 4);
+
+            _actionableOnlyCheckBox.Dock = DockStyle.Fill;
+            _actionableOnlyCheckBox.ForeColor = UiTheme.Text;
+            _actionableOnlyCheckBox.Text = "Hanya tampilkan tugas yang bisa diproses";
+            _actionableOnlyCheckBox.TextAlign = ContentAlignment.MiddleLeft;
+            root.Controls.Add(_actionableOnlyCheckBox, 1, 5);
+
+            var hint = new Label
+            {
+                Dock = DockStyle.Fill,
+                Font = new Font("Segoe UI", 9.2F, FontStyle.Regular),
+                ForeColor = UiTheme.MutedText,
+                Text = "Filter ini diterapkan ke daftar sesi aktif yang sudah dimuat.",
+                TextAlign = ContentAlignment.TopLeft
+            };
+            root.Controls.Add(hint, 0, 6);
+            root.SetColumnSpan(hint, 2);
+
+            var buttonBar = BuildButtonBar();
+            root.Controls.Add(buttonBar, 0, 7);
+            root.SetColumnSpan(buttonBar, 2);
+
+            Controls.Add(root);
+            ApplyState(currentFilter);
+        }
+
+        private Control BuildButtonBar()
+        {
+            var panel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = UiTheme.PageBackground,
+                FlowDirection = FlowDirection.RightToLeft,
+                WrapContents = false,
+                Padding = new Padding(0, 6, 0, 0)
+            };
+
+            var applyButton = CreateDialogButton("Terapkan", UiTheme.Accent, true);
+            applyButton.Click += (_, _) =>
+            {
+                SelectedFilter = new JobFilterState(
+                    GetSelectedValue(_statusCombo),
+                    GetSelectedValue(_documentTypeCombo),
+                    GetSelectedValue(_paperCombo),
+                    GetSelectedValue(_timeCombo),
+                    _actionableOnlyCheckBox.Checked);
+                DialogResult = DialogResult.OK;
+                Close();
+            };
+
+            var cancelButton = CreateDialogButton("Batal", UiTheme.MutedText, false);
+            cancelButton.Click += (_, _) =>
+            {
+                DialogResult = DialogResult.Cancel;
+                Close();
+            };
+
+            var resetButton = CreateDialogButton("Reset", UiTheme.Accent, false);
+            resetButton.Click += (_, _) => ApplyState(JobFilterState.Default);
+
+            panel.Controls.Add(applyButton);
+            panel.Controls.Add(cancelButton);
+            panel.Controls.Add(resetButton);
+
+            return panel;
+        }
+
+        private static JobCommandButton CreateDialogButton(string text, Color accentColor, bool filled)
+        {
+            return new JobCommandButton
+            {
+                Text = text,
+                AccentColor = accentColor,
+                Filled = filled,
+                Size = new Size(104, 38),
+                Margin = new Padding(8, 0, 0, 0)
+            };
+        }
+
+        private static Label CreateFieldLabel(string text)
+        {
+            return new Label
+            {
+                Dock = DockStyle.Fill,
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = UiTheme.Text,
+                Text = text,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+        }
+
+        private static void ConfigureCombo(ComboBox combo)
+        {
+            combo.Dock = DockStyle.Fill;
+            combo.DropDownStyle = ComboBoxStyle.DropDownList;
+            combo.Font = new Font("Segoe UI", 10.2F, FontStyle.Regular);
+            combo.Margin = new Padding(0, 7, 0, 7);
+        }
+
+        private static void AddOption(ComboBox combo, string label, string value)
+        {
+            combo.Items.Add(new JobFilterOption(label, value));
+        }
+
+        private static IReadOnlyList<string> GetPaperSizeOptions(IReadOnlyCollection<PrintJob> jobs, string selectedPaperSize)
+        {
+            var values = jobs
+                .Select(job => job.PrintConfig?.PaperSize?.Trim())
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(value => value)
+                .ToList();
+
+            if (!string.Equals(selectedPaperSize, JobFilterState.All, StringComparison.OrdinalIgnoreCase)
+                && !values.Contains(selectedPaperSize, StringComparer.OrdinalIgnoreCase))
+            {
+                values.Add(selectedPaperSize);
+            }
+
+            return values;
+        }
+
+        private void ApplyState(JobFilterState state)
+        {
+            SelectValue(_statusCombo, state.Status);
+            SelectValue(_documentTypeCombo, state.DocumentType);
+            SelectValue(_paperCombo, state.PaperSize);
+            SelectValue(_timeCombo, state.TimeRange);
+            _actionableOnlyCheckBox.Checked = state.ActionableOnly;
+        }
+
+        private static void SelectValue(ComboBox combo, string value)
+        {
+            foreach (var item in combo.Items)
+            {
+                if (item is JobFilterOption option
+                    && string.Equals(option.Value, value, StringComparison.OrdinalIgnoreCase))
+                {
+                    combo.SelectedItem = item;
+                    return;
+                }
+            }
+
+            if (combo.Items.Count > 0)
+            {
+                combo.SelectedIndex = 0;
+            }
+        }
+
+        private static string GetSelectedValue(ComboBox combo)
+        {
+            return combo.SelectedItem is JobFilterOption option
+                ? option.Value
+                : JobFilterState.All;
+        }
+    }
+
+    internal sealed class JobFilterOption
+    {
+        public JobFilterOption(string label, string value)
+        {
+            Label = label;
+            Value = value;
+        }
+
+        public string Label { get; }
+        public string Value { get; }
+
+        public override string ToString()
+        {
+            return Label;
+        }
+    }
+
+    internal sealed class JobFilterState
+    {
+        public const string All = "all";
+        public const string DocumentPdf = "pdf";
+        public const string DocumentImage = "image";
+        public const string DocumentOther = "other";
+        public const string TimeToday = "today";
+        public const string TimeLast7Days = "last7";
+        public const string TimeThisMonth = "month";
+
+        public static readonly JobFilterState Default = new JobFilterState(All, All, All, All, false);
+
+        public JobFilterState(
+            string status,
+            string documentType,
+            string paperSize,
+            string timeRange,
+            bool actionableOnly)
+        {
+            Status = Normalize(status);
+            DocumentType = Normalize(documentType);
+            PaperSize = string.IsNullOrWhiteSpace(paperSize) ? All : paperSize;
+            TimeRange = Normalize(timeRange);
+            ActionableOnly = actionableOnly;
+        }
+
+        public string Status { get; }
+        public string DocumentType { get; }
+        public string PaperSize { get; }
+        public string TimeRange { get; }
+        public bool ActionableOnly { get; }
+
+        public int ActiveFilterCount
+        {
+            get
+            {
+                var count = 0;
+                if (!IsAll(Status)) count++;
+                if (!IsAll(DocumentType)) count++;
+                if (!IsAll(PaperSize)) count++;
+                if (!IsAll(TimeRange)) count++;
+                if (ActionableOnly) count++;
+                return count;
+            }
+        }
+
+        public bool Matches(PrintJob job)
+        {
+            if (!IsAll(Status) && !JobVisuals.IsStatus(job.Status, Status))
+            {
+                return false;
+            }
+
+            if (!IsAll(DocumentType) && !string.Equals(GetDocumentType(job), DocumentType, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (!IsAll(PaperSize)
+                && !string.Equals(job.PrintConfig?.PaperSize?.Trim(), PaperSize, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (!IsAll(TimeRange) && !MatchesTimeRange(job.CreatedAt, TimeRange))
+            {
+                return false;
+            }
+
+            if (ActionableOnly
+                && !JobVisuals.IsStatus(job.Status, "ready")
+                && !JobVisuals.IsStatus(job.Status, "pending"))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool MatchesTimeRange(string? value, string timeRange)
+        {
+            if (!DateTime.TryParse(value, out var parsed))
+            {
+                return false;
+            }
+
+            var localTime = parsed.ToLocalTime();
+            var now = DateTime.Now;
+
+            return timeRange switch
+            {
+                TimeToday => localTime.Date == now.Date,
+                TimeLast7Days => localTime >= now.AddDays(-7),
+                TimeThisMonth => localTime.Year == now.Year && localTime.Month == now.Month,
+                _ => true
+            };
+        }
+
+        private static string GetDocumentType(PrintJob job)
+        {
+            var extension = Path.GetExtension(job.OriginalName)?.TrimStart('.').ToLowerInvariant();
+            return extension switch
+            {
+                "pdf" => DocumentPdf,
+                "jpg" or "jpeg" or "png" or "bmp" => DocumentImage,
+                _ => DocumentOther
+            };
+        }
+
+        private static string Normalize(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? All : value.Trim();
+        }
+
+        private static bool IsAll(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value)
+                || string.Equals(value, All, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    internal sealed class StatusPill : Control
+    {
+        private readonly string _text;
+        private readonly Color _accent;
+        private readonly Color _fill;
+        private readonly Color _border;
+
+        public StatusPill(string? status)
+        {
+            SetStyle(
+                ControlStyles.UserPaint |
+                ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer |
+                ControlStyles.ResizeRedraw |
+                ControlStyles.SupportsTransparentBackColor,
+                true);
+
+            BackColor = Color.Transparent;
+            Font = new Font("Segoe UI", 9.5F, FontStyle.Regular);
+
+            var style = JobVisuals.GetStatusStyle(status);
+            _text = style.Label;
+            _accent = style.Accent;
+            _fill = style.Fill;
+            _border = style.Border;
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            using var brush = new SolidBrush(UiDrawing.ResolveSurfaceColor(this, Color.White));
+            e.Graphics.FillRectangle(brush, ClientRectangle);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
+            var rect = ClientRectangle;
+            rect.Width -= 1;
+            rect.Height -= 1;
+
+            using var path = UiDrawing.CreateRoundedRectangle(rect, 8);
+            using var fillBrush = new SolidBrush(_fill);
+            using var borderPen = new Pen(_border, 1F);
+            e.Graphics.FillPath(fillBrush, path);
+            e.Graphics.DrawPath(borderPen, path);
+
+            using var dotBrush = new SolidBrush(_accent);
+            e.Graphics.FillEllipse(dotBrush, 12, rect.Height / 2 - 4, 8, 8);
+
+            TextRenderer.DrawText(
+                e.Graphics,
+                _text,
+                Font,
+                new Rectangle(28, 0, rect.Width - 32, rect.Height),
+                _accent,
+                TextFormatFlags.Left |
+                TextFormatFlags.VerticalCenter |
+                TextFormatFlags.SingleLine |
+                TextFormatFlags.EndEllipsis);
+        }
+    }
+
+    internal sealed class JobCommandButton : Control
+    {
+        private bool _isHovered;
+        private bool _isPressed;
+
+        public bool Filled { get; set; }
+        public Color AccentColor { get; set; } = UiTheme.Accent;
+        public JobGlyph Glyph { get; set; } = JobGlyph.None;
+        public int CornerRadius { get; set; } = 10;
+
+        public JobCommandButton()
+        {
+            SetStyle(
+                ControlStyles.UserPaint |
+                ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer |
+                ControlStyles.ResizeRedraw |
+                ControlStyles.Selectable,
+                true);
+
+            Cursor = Cursors.Hand;
+            Font = new Font("Segoe UI", 10.2F, FontStyle.Bold);
+            TabStop = true;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+
+            using var backgroundBrush = new SolidBrush(UiDrawing.ResolveSurfaceColor(this, UiTheme.PageBackground));
+            e.Graphics.FillRectangle(backgroundBrush, ClientRectangle);
+
+            var rect = ClientRectangle;
+            rect.Width -= 1;
+            rect.Height -= 1;
+
+            var fill = ResolveFillColor();
+            var border = Enabled ? AccentColor : UiTheme.Border;
+            var content = ResolveContentColor();
+
+            using var path = UiDrawing.CreateRoundedRectangle(rect, CornerRadius);
+            using var fillBrush = new SolidBrush(fill);
+            e.Graphics.FillPath(fillBrush, path);
+
+            if (!Filled || !Enabled)
+            {
+                using var pen = new Pen(border, 1.15F);
+                e.Graphics.DrawPath(pen, path);
+            }
+
+            DrawContent(e.Graphics, rect, content);
+        }
+
+        private Color ResolveFillColor()
+        {
+            if (!Enabled)
+            {
+                return UiTheme.DisabledBackground;
+            }
+
+            if (Filled)
+            {
+                if (_isPressed)
+                {
+                    return ControlPaint.Dark(AccentColor, 0.12F);
+                }
+
+                if (_isHovered)
+                {
+                    return ControlPaint.Light(AccentColor, 0.08F);
+                }
+
+                return AccentColor;
+            }
+
+            if (_isPressed)
+            {
+                return Color.FromArgb(255, 246, 242);
+            }
+
+            if (_isHovered)
+            {
+                return Color.FromArgb(255, 251, 249);
+            }
+
+            return Color.White;
+        }
+
+        private Color ResolveContentColor()
+        {
+            if (!Enabled)
+            {
+                return UiTheme.DisabledText;
+            }
+
+            return Filled ? Color.White : AccentColor;
+        }
+
+        private void DrawContent(Graphics graphics, Rectangle rect, Color contentColor)
+        {
+            var text = Text ?? string.Empty;
+            var hasIcon = Glyph != JobGlyph.None;
+            var hasText = !string.IsNullOrWhiteSpace(text);
+            var iconSize = hasIcon ? 20 : 0;
+            var gap = hasIcon && hasText ? 8 : 0;
+
+            var textSize = hasText
+                ? TextRenderer.MeasureText(
+                    graphics,
+                    text,
+                    Font,
+                    new Size(rect.Width, rect.Height),
+                    TextFormatFlags.NoPadding | TextFormatFlags.SingleLine)
+                : Size.Empty;
+
+            var totalWidth = iconSize + gap + textSize.Width;
+            var startX = rect.X + Math.Max(0, (rect.Width - totalWidth) / 2);
+            var centerY = rect.Y + rect.Height / 2;
+
+            if (hasIcon)
+            {
+                var iconRect = new Rectangle(startX, centerY - iconSize / 2, iconSize, iconSize);
+                JobGlyphPainter.Draw(graphics, Glyph, iconRect, contentColor, 2F);
+                startX += iconSize + gap;
+            }
+
+            if (!hasText)
+            {
+                return;
+            }
+
+            var textRect = new Rectangle(
+                startX,
+                rect.Y,
+                Math.Min(textSize.Width + 8, rect.Right - startX),
+                rect.Height);
+
+            TextRenderer.DrawText(
+                graphics,
+                text,
+                Font,
+                textRect,
+                contentColor,
+                TextFormatFlags.Left |
+                TextFormatFlags.VerticalCenter |
+                TextFormatFlags.SingleLine |
+                TextFormatFlags.EndEllipsis |
+                TextFormatFlags.NoPadding);
+        }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            base.OnMouseEnter(e);
+            _isHovered = true;
+            Invalidate();
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            _isHovered = false;
+            _isPressed = false;
+            Invalidate();
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (e.Button == MouseButtons.Left && Enabled)
+            {
+                _isPressed = true;
+                Focus();
+                Invalidate();
+            }
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+            if (_isPressed)
+            {
+                _isPressed = false;
+                Invalidate();
+            }
+        }
+
+        protected override void OnEnabledChanged(EventArgs e)
+        {
+            base.OnEnabledChanged(e);
+            Cursor = Enabled ? Cursors.Hand : Cursors.Default;
+            Invalidate();
+        }
+
+        protected override void OnTextChanged(EventArgs e)
+        {
+            base.OnTextChanged(e);
+            Invalidate();
+        }
+    }
+
+    internal sealed class GlyphView : Control
+    {
+        public JobGlyph Glyph { get; set; }
+        public Color GlyphColor { get; set; } = UiTheme.Text;
+
+        public GlyphView()
+        {
+            SetStyle(
+                ControlStyles.UserPaint |
+                ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer |
+                ControlStyles.ResizeRedraw |
+                ControlStyles.SupportsTransparentBackColor,
+                true);
+
+            BackColor = Color.Transparent;
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            using var brush = new SolidBrush(UiDrawing.ResolveSurfaceColor(this, UiTheme.PageBackground));
+            e.Graphics.FillRectangle(brush, ClientRectangle);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            JobGlyphPainter.Draw(e.Graphics, Glyph, new Rectangle(2, 2, Width - 4, Height - 4), GlyphColor, 2.2F);
+        }
+    }
+
+    internal sealed class JobHeroIcon : Control
+    {
+        public JobHeroIcon()
+        {
+            SetStyle(
+                ControlStyles.UserPaint |
+                ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer |
+                ControlStyles.ResizeRedraw |
+                ControlStyles.SupportsTransparentBackColor,
+                true);
+
+            BackColor = Color.Transparent;
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            using var brush = new SolidBrush(UiDrawing.ResolveSurfaceColor(this, Color.White));
+            e.Graphics.FillRectangle(brush, ClientRectangle);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+
+            if (JobLucideAssets.TryDrawNamed(
+                    e.Graphics,
+                    new[] { "file-up", "lucide-file-up", "file-arrow-up", "upload" },
+                    new Rectangle(8, 4, 96, 96),
+                    UiTheme.Text,
+                    tint: false))
+            {
+                return;
+            }
+
+            var docRect = new Rectangle(10, 8, 68, 88);
+            using var docPath = BuildDocumentPath(docRect, 20);
+            using var shadowBrush = new SolidBrush(Color.FromArgb(24, 15, 23, 42));
+            using var fillBrush = new SolidBrush(Color.White);
+            using var borderPen = new Pen(UiTheme.Text, 3F)
+            {
+                LineJoin = LineJoin.Round,
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round
+            };
+
+            e.Graphics.TranslateTransform(0, 2);
+            e.Graphics.FillPath(shadowBrush, docPath);
+            e.Graphics.TranslateTransform(0, -2);
+            e.Graphics.FillPath(fillBrush, docPath);
+            e.Graphics.DrawPath(borderPen, docPath);
+
+            var fold = new[]
+            {
+                new Point(docRect.Right - 20, docRect.Top + 2),
+                new Point(docRect.Right + 1, docRect.Top + 22),
+                new Point(docRect.Right - 20, docRect.Top + 22)
+            };
+            using var foldBrush = new SolidBrush(UiTheme.Accent);
+            e.Graphics.FillPolygon(foldBrush, fold);
+
+            using var linePen = new Pen(UiTheme.Text, 3.2F)
+            {
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round
+            };
+            e.Graphics.DrawLine(linePen, docRect.Left + 18, docRect.Top + 38, docRect.Left + 48, docRect.Top + 38);
+            e.Graphics.DrawLine(linePen, docRect.Left + 18, docRect.Top + 54, docRect.Left + 50, docRect.Top + 54);
+            e.Graphics.DrawLine(linePen, docRect.Left + 18, docRect.Top + 70, docRect.Left + 44, docRect.Top + 70);
+
+            var circle = new Rectangle(60, 58, 44, 44);
+            using var accentBrush = new SolidBrush(UiTheme.Accent);
+            e.Graphics.FillEllipse(accentBrush, circle);
+            using var arrowPen = new Pen(Color.White, 4F)
+            {
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round,
+                LineJoin = LineJoin.Round
+            };
+            e.Graphics.DrawLine(arrowPen, circle.Left + 22, circle.Bottom - 12, circle.Left + 22, circle.Top + 13);
+            e.Graphics.DrawLine(arrowPen, circle.Left + 12, circle.Top + 23, circle.Left + 22, circle.Top + 13);
+            e.Graphics.DrawLine(arrowPen, circle.Left + 32, circle.Top + 23, circle.Left + 22, circle.Top + 13);
+        }
+
+        private static GraphicsPath BuildDocumentPath(Rectangle rect, int fold)
+        {
+            var path = new GraphicsPath();
+            path.AddLine(rect.Left, rect.Top, rect.Right - fold, rect.Top);
+            path.AddLine(rect.Right - fold, rect.Top, rect.Right, rect.Top + fold);
+            path.AddLine(rect.Right, rect.Top + fold, rect.Right, rect.Bottom);
+            path.AddLine(rect.Right, rect.Bottom, rect.Left, rect.Bottom);
+            path.AddLine(rect.Left, rect.Bottom, rect.Left, rect.Top);
+            path.CloseFigure();
+            return path;
+        }
+    }
+
+    internal sealed class DocumentTypeIcon : Control
+    {
+        public string? Extension { get; set; }
+
+        public DocumentTypeIcon()
+        {
+            SetStyle(
+                ControlStyles.UserPaint |
+                ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer |
+                ControlStyles.ResizeRedraw |
+                ControlStyles.SupportsTransparentBackColor,
+                true);
+
+            BackColor = Color.Transparent;
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            using var brush = new SolidBrush(UiDrawing.ResolveSurfaceColor(this, Color.White));
+            e.Graphics.FillRectangle(brush, ClientRectangle);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+
+            var ext = (Extension ?? string.Empty).TrimStart('.').ToUpperInvariant();
+            var isImage = ext is "PNG" or "JPG" or "JPEG" or "BMP";
+            var accent = isImage ? UiTheme.Success : JobVisuals.Danger;
+            var label = string.IsNullOrWhiteSpace(ext) ? "FILE" : (isImage ? "IMG" : ext.Length > 3 ? ext[..3] : ext);
+
+            var rect = new Rectangle(4, 2, Width - 9, Height - 5);
+            var fold = 9;
+            using var path = new GraphicsPath();
+            path.AddLine(rect.Left, rect.Top, rect.Right - fold, rect.Top);
+            path.AddLine(rect.Right - fold, rect.Top, rect.Right, rect.Top + fold);
+            path.AddLine(rect.Right, rect.Top + fold, rect.Right, rect.Bottom);
+            path.AddLine(rect.Right, rect.Bottom, rect.Left, rect.Bottom);
+            path.AddLine(rect.Left, rect.Bottom, rect.Left, rect.Top);
+            path.CloseFigure();
+
+            using var pen = new Pen(accent, 1.8F)
+            {
+                LineJoin = LineJoin.Round
+            };
+            using var fillBrush = new SolidBrush(Color.White);
+            e.Graphics.FillPath(fillBrush, path);
+            e.Graphics.DrawPath(pen, path);
+
+            using var foldBrush = new SolidBrush(Color.FromArgb(238, accent));
+            e.Graphics.FillPolygon(
+                foldBrush,
+                new[]
+                {
+                    new Point(rect.Right - fold, rect.Top + 1),
+                    new Point(rect.Right - 1, rect.Top + fold),
+                    new Point(rect.Right - fold, rect.Top + fold)
+                });
+
+            if (isImage)
+            {
+                using var iconBrush = new SolidBrush(accent);
+                e.Graphics.FillPolygon(
+                    iconBrush,
+                    new[]
+                    {
+                        new Point(rect.Left + 6, rect.Bottom - 9),
+                        new Point(rect.Left + 14, rect.Bottom - 18),
+                        new Point(rect.Left + 20, rect.Bottom - 11),
+                        new Point(rect.Left + 25, rect.Bottom - 17),
+                        new Point(rect.Right - 5, rect.Bottom - 9)
+                    });
+                e.Graphics.FillEllipse(iconBrush, rect.Left + 8, rect.Top + 12, 5, 5);
+                return;
+            }
+
+            TextRenderer.DrawText(
+                e.Graphics,
+                label,
+                new Font("Segoe UI", 6.4F, FontStyle.Bold),
+                new Rectangle(rect.Left + 2, rect.Bottom - 17, rect.Width - 4, 14),
+                accent,
+                TextFormatFlags.HorizontalCenter |
+                TextFormatFlags.VerticalCenter |
+                TextFormatFlags.SingleLine |
+                TextFormatFlags.NoPadding);
+        }
+    }
+
+    internal enum JobGlyph
+    {
+        None,
+        Search,
+        Filter,
+        Refresh,
+        CheckCircle
+    }
+
+    internal static class JobGlyphPainter
+    {
+        public static void Draw(Graphics graphics, JobGlyph glyph, Rectangle bounds, Color color, float strokeWidth)
+        {
+            if (glyph == JobGlyph.None)
+            {
+                return;
+            }
+
+            if (JobLucideAssets.TryDraw(graphics, glyph, bounds, color))
+            {
+                return;
+            }
+
+            using var pen = new Pen(color, strokeWidth)
+            {
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round,
+                LineJoin = LineJoin.Round
+            };
+            using var brush = new SolidBrush(color);
+
+            switch (glyph)
+            {
+                case JobGlyph.Search:
+                    DrawSearch(graphics, pen, bounds);
+                    break;
+
+                case JobGlyph.Filter:
+                    DrawFilter(graphics, pen, bounds);
+                    break;
+
+                case JobGlyph.Refresh:
+                    DrawRefresh(graphics, pen, bounds);
+                    break;
+
+                case JobGlyph.CheckCircle:
+                    DrawCheckCircle(graphics, pen, brush, bounds);
+                    break;
+            }
+        }
+
+        private static void DrawSearch(Graphics graphics, Pen pen, Rectangle bounds)
+        {
+            var circle = Rectangle.Inflate(bounds, -5, -5);
+            circle.Width -= 4;
+            circle.Height -= 4;
+            graphics.DrawEllipse(pen, circle);
+            graphics.DrawLine(pen, circle.Right - 1, circle.Bottom - 1, bounds.Right - 4, bounds.Bottom - 4);
+        }
+
+        private static void DrawFilter(Graphics graphics, Pen pen, Rectangle bounds)
+        {
+            var top = bounds.Top + bounds.Height / 5;
+            var left = bounds.Left + bounds.Width / 5;
+            var right = bounds.Right - bounds.Width / 5;
+            var midX = bounds.Left + bounds.Width / 2;
+            var neckTop = bounds.Top + bounds.Height / 2;
+            var bottom = bounds.Bottom - bounds.Height / 6;
+
+            using var path = new GraphicsPath();
+            path.AddLine(left, top, right, top);
+            path.AddLine(right, top, midX + 4, neckTop);
+            path.AddLine(midX + 4, neckTop, midX + 4, bottom);
+            path.AddLine(midX + 4, bottom, midX - 4, bottom - 4);
+            path.AddLine(midX - 4, bottom - 4, midX - 4, neckTop);
+            path.AddLine(midX - 4, neckTop, left, top);
+            graphics.DrawPath(pen, path);
+        }
+
+        private static void DrawRefresh(Graphics graphics, Pen pen, Rectangle bounds)
+        {
+            var rect = Rectangle.Inflate(bounds, -3, -3);
+            graphics.DrawArc(pen, rect, 35, 250);
+            graphics.DrawArc(pen, rect, 215, 90);
+
+            var arrow1 = new[]
+            {
+                new Point(rect.Right - 2, rect.Top + rect.Height / 2 - 5),
+                new Point(rect.Right - 2, rect.Top + rect.Height / 2 + 5),
+                new Point(rect.Right - 11, rect.Top + rect.Height / 2 + 2)
+            };
+            graphics.DrawLines(pen, arrow1);
+
+            var arrow2 = new[]
+            {
+                new Point(rect.Left + 2, rect.Top + rect.Height / 2 + 5),
+                new Point(rect.Left + 2, rect.Top + rect.Height / 2 - 5),
+                new Point(rect.Left + 11, rect.Top + rect.Height / 2 - 2)
+            };
+            graphics.DrawLines(pen, arrow2);
+        }
+
+        private static void DrawCheckCircle(Graphics graphics, Pen pen, Brush brush, Rectangle bounds)
+        {
+            var circle = Rectangle.Inflate(bounds, -1, -1);
+            graphics.FillEllipse(brush, circle);
+
+            using var checkPen = new Pen(Color.White, Math.Max(2F, pen.Width))
+            {
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round,
+                LineJoin = LineJoin.Round
+            };
+
+            graphics.DrawLines(
+                checkPen,
+                new[]
+                {
+                    new Point(circle.Left + circle.Width / 4, circle.Top + circle.Height / 2),
+                    new Point(circle.Left + circle.Width / 2 - 2, circle.Bottom - circle.Height / 4),
+                    new Point(circle.Right - circle.Width / 5, circle.Top + circle.Height / 3)
+                });
+        }
+    }
+
+    internal static class JobLucideAssets
+    {
+        private static readonly Dictionary<string, Image> Cache = new(StringComparer.OrdinalIgnoreCase);
+
+        public static bool TryDraw(Graphics graphics, JobGlyph glyph, Rectangle destination, Color color)
+        {
+            var names = glyph switch
+            {
+                JobGlyph.Search => new[] { "search", "lucide-search" },
+                JobGlyph.Filter => new[] { "funnel", "filter", "lucide-funnel", "lucide-filter" },
+                JobGlyph.Refresh => new[] { "refresh-cw", "refresh-ccw", "rotate-cw", "lucide-refresh-cw" },
+                JobGlyph.CheckCircle => new[] { "circle-check", "check-circle", "lucide-circle-check", "lucide-check-circle" },
+                _ => Array.Empty<string>()
+            };
+
+            return TryDrawNamed(graphics, names, destination, color, tint: true);
+        }
+
+        public static bool TryDrawNamed(
+            Graphics graphics,
+            IReadOnlyList<string> names,
+            Rectangle destination,
+            Color color,
+            bool tint)
+        {
+            foreach (var name in names)
+            {
+                if (TryGet(name, out var image))
+                {
+                    DrawImage(graphics, image, destination, color, tint);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryGet(string name, out Image image)
+        {
+            image = null!;
+
+            foreach (var path in GetCandidatePaths(name))
+            {
+                if (!File.Exists(path))
+                {
+                    continue;
+                }
+
+                if (Cache.TryGetValue(path, out var cached))
+                {
+                    image = cached;
+                    return true;
+                }
+
+                try
+                {
+                    using var stream = File.OpenRead(path);
+                    using var source = Image.FromStream(stream);
+                    image = new Bitmap(source);
+                    Cache[path] = image;
+                    return true;
+                }
+                catch
+                {
+                    // Fallback ke painter vektor lama bila PNG belum valid.
+                }
+            }
+
+            return false;
+        }
+
+        private static IEnumerable<string> GetCandidatePaths(string name)
+        {
+            var fileName = name.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+                ? name
+                : $"{name}.png";
+
+            yield return Path.Combine(AppContext.BaseDirectory, "Assets", "Icons", fileName);
+            yield return Path.Combine(AppContext.BaseDirectory, "Assets", "Icons", "Lucide", fileName);
+        }
+
+        private static void DrawImage(Graphics graphics, Image image, Rectangle destination, Color color, bool tint)
+        {
+            graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            graphics.CompositingQuality = CompositingQuality.HighQuality;
+
+            if (!tint)
+            {
+                graphics.DrawImage(image, destination);
+                return;
+            }
+
+            using var attributes = CreateTintAttributes(color);
+            graphics.DrawImage(
+                image,
+                destination,
+                0,
+                0,
+                image.Width,
+                image.Height,
+                GraphicsUnit.Pixel,
+                attributes);
+        }
+
+        private static ImageAttributes CreateTintAttributes(Color color)
+        {
+            var r = color.R / 255F;
+            var g = color.G / 255F;
+            var b = color.B / 255F;
+            var a = color.A / 255F;
+
+            var matrix = new ColorMatrix(new[]
+            {
+                new float[] { 0, 0, 0, 0, 0 },
+                new float[] { 0, 0, 0, 0, 0 },
+                new float[] { 0, 0, 0, 0, 0 },
+                new float[] { 0, 0, 0, a, 0 },
+                new float[] { r, g, b, 0, 1 }
+            });
+
+            var attributes = new ImageAttributes();
+            attributes.SetColorMatrix(matrix, ColorMatrixFlag.Default, ColorAdjustType.Bitmap);
+            return attributes;
+        }
+    }
+
+    internal static class JobColumnLayout
+    {
+        public const int ColumnCount = 7;
+
+        public static void Apply(TableLayoutPanel table)
+        {
+            table.ColumnStyles.Clear();
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 24));
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 14));
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 8));
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 7));
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 14));
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 16));
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 17));
+        }
+    }
+
+    internal static class JobVisuals
+    {
+        public static readonly Color Warning = Color.FromArgb(245, 137, 13);
+        public static readonly Color Danger = Color.FromArgb(236, 35, 28);
+        public static readonly Color Info = Color.FromArgb(31, 125, 225);
+        public static readonly Color Done = Color.FromArgb(20, 132, 81);
+
+        public static bool IsStatus(string? status, string expected)
+        {
+            return string.Equals(status, expected, StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static string GetStatusLabel(string? status)
         {
             if (string.IsNullOrWhiteSpace(status))
             {
                 return "-";
             }
 
-            return string.Equals(status, "done", StringComparison.OrdinalIgnoreCase)
-                ? "Sent"
-                : status;
+            return status.Trim().ToLowerInvariant() switch
+            {
+                "ready" => "Siap",
+                "pending" => "Tertunda",
+                "failed" => "Gagal",
+                "printing" => "Mencetak",
+                "done" => "Berhasil",
+                "rejected" => "Batal",
+                _ => status
+            };
+        }
+
+        public static JobStatusStyle GetStatusStyle(string? status)
+        {
+            if (IsStatus(status, "ready"))
+            {
+                return new JobStatusStyle("Siap", UiTheme.Success, UiTheme.SuccessSoft, Color.FromArgb(172, 224, 193));
+            }
+
+            if (IsStatus(status, "pending"))
+            {
+                return new JobStatusStyle("Tertunda", Warning, Color.FromArgb(255, 247, 236), Color.FromArgb(249, 200, 139));
+            }
+
+            if (IsStatus(status, "failed"))
+            {
+                return new JobStatusStyle("Gagal", Danger, Color.FromArgb(255, 241, 241), Color.FromArgb(250, 187, 187));
+            }
+
+            if (IsStatus(status, "printing"))
+            {
+                return new JobStatusStyle("Mencetak", Info, Color.FromArgb(236, 246, 255), Color.FromArgb(174, 211, 248));
+            }
+
+            if (IsStatus(status, "done"))
+            {
+                return new JobStatusStyle("Berhasil", Done, Color.FromArgb(232, 247, 238), Color.FromArgb(172, 224, 193));
+            }
+
+            if (IsStatus(status, "rejected"))
+            {
+                return new JobStatusStyle("Batal", UiTheme.MutedText, Color.FromArgb(244, 246, 248), UiTheme.Border);
+            }
+
+            return new JobStatusStyle(GetStatusLabel(status), UiTheme.MutedText, Color.FromArgb(244, 246, 248), UiTheme.Border);
         }
     }
+
+    internal readonly record struct JobStatusStyle(string Label, Color Accent, Color Fill, Color Border);
 }
