@@ -18,7 +18,7 @@ namespace PrintOrder
         private readonly string _serverBaseUrl;
         private readonly Func<string?> _getClientId;
         private readonly Func<HttpRequestMessage, Task<HttpResponseMessage>> _sendAuthorizedAsync;
-        private readonly Func<PrintJob, Task> _printJobAsync;
+        private readonly Func<PrintJob, Task<PrintJob?>> _printJobAsync;
         private readonly Func<PrintJob, Task> _rejectJobAsync;
         private readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
         {
@@ -52,7 +52,7 @@ namespace PrintOrder
             string serverBaseUrl,
             Func<string?> getClientId,
             Func<HttpRequestMessage, Task<HttpResponseMessage>> sendAuthorizedAsync,
-            Func<PrintJob, Task> printJobAsync,
+            Func<PrintJob, Task<PrintJob?>> printJobAsync,
             Func<PrintJob, Task> rejectJobAsync)
         {
             _serverBaseUrl = serverBaseUrl.TrimEnd('/');
@@ -547,14 +547,14 @@ namespace PrintOrder
             _filterButton.Invalidate();
         }
 
-        private async Task HandlePrintActionAsync(PrintJob job)
+        private async Task<PrintJob?> HandlePrintActionAsync(PrintJob job)
         {
             var latestJob = await FetchJobAsync(job.Id);
             if (latestJob == null)
             {
                 _statusLabel.Text = "Job tidak ditemukan atau sudah dihapus.";
                 await LoadJobsAsync();
-                return;
+                return null;
             }
 
             job = latestJob;
@@ -563,14 +563,15 @@ namespace PrintOrder
             {
                 _statusLabel.Text = $"Job sudah berubah status ({job.Status}).";
                 await LoadJobsAsync();
-                return;
+                return null;
             }
 
             _statusLabel.Text = $"Mencetak {job.OriginalName}...";
             SetBusy(true);
+            PrintJob? updatedJob = null;
             try
             {
-                await _printJobAsync(job);
+                updatedJob = await _printJobAsync(job);
             }
             finally
             {
@@ -578,6 +579,33 @@ namespace PrintOrder
             }
 
             await LoadJobsAsync();
+            if (updatedJob != null)
+            {
+                ApplyJobUpdate(updatedJob);
+            }
+
+            return updatedJob;
+        }
+
+        private void ApplyJobUpdate(PrintJob updatedJob)
+        {
+            if (string.IsNullOrWhiteSpace(updatedJob.Id))
+            {
+                return;
+            }
+
+            var index = _allJobs.FindIndex(job => string.Equals(job.Id, updatedJob.Id, StringComparison.OrdinalIgnoreCase));
+            if (index >= 0)
+            {
+                _allJobs[index] = updatedJob;
+            }
+            else
+            {
+                _allJobs.Add(updatedJob);
+            }
+
+            UpdateMetrics(_allJobs);
+            RenderFilteredJobs();
         }
 
         private async Task HandleRejectActionAsync(PrintJob job)
@@ -947,7 +975,7 @@ namespace PrintOrder
     internal sealed class JobDetailPage : Panel
     {
         private readonly PrintJob _job;
-        private readonly Func<PrintJob, Task> _printActionAsync;
+        private readonly Func<PrintJob, Task<PrintJob?>> _printActionAsync;
         private readonly Func<PrintJob, Task> _rejectActionAsync;
         private readonly Action _backAction;
         private readonly JobCommandButton _backButton = new JobCommandButton();
@@ -956,7 +984,7 @@ namespace PrintOrder
 
         public JobDetailPage(
             PrintJob job,
-            Func<PrintJob, Task> printActionAsync,
+            Func<PrintJob, Task<PrintJob?>> printActionAsync,
             Func<PrintJob, Task> rejectActionAsync,
             Action backAction)
         {
@@ -1415,7 +1443,7 @@ namespace PrintOrder
             _printButton.Filled = JobVisuals.IsStatus(_job.Status, "ready");
             _printButton.AccentColor = UiTheme.Accent;
             _printButton.Enabled = JobVisuals.IsStatus(_job.Status, "ready") || JobVisuals.IsStatus(_job.Status, "pending");
-            _printButton.Click += async (_, _) => await RunActionAsync(_printActionAsync);
+            _printButton.Click += async (_, _) => await RunPrintActionAsync();
 
             footer.Controls.Add(_rejectButton);
             footer.Controls.Add(_printButton);
@@ -1445,6 +1473,20 @@ namespace PrintOrder
             try
             {
                 await action(_job);
+                _backAction();
+            }
+            finally
+            {
+                SetBusy(false);
+            }
+        }
+
+        private async Task RunPrintActionAsync()
+        {
+            SetBusy(true);
+            try
+            {
+                await _printActionAsync(_job);
                 _backAction();
             }
             finally

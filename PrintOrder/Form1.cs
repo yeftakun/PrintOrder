@@ -23,7 +23,13 @@ namespace PrintOrder
         // Menyimpan gambar yang akan di-print via PrintDocument
         private Image? _imageToPrint;
         private int _activeContentScale = 100;
+        private const string InsufficientCreditCode = "INSUFFICIENT_CREDIT";
+        private const string InsufficientCreditOperatorMessage = "Kredit toko tidak cukup. Tambahkan kredit atau aktifkan plan sebelum mencetak.";
         private static readonly HttpClient Http = CreateHttpClient();
+        private static readonly JsonSerializerOptions CaseInsensitiveJsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        };
         private readonly string _serverBaseUrl = AppConfig.LoadServerBaseUrl();
         private readonly SemaphoreSlim _authRefreshLock = new SemaphoreSlim(1, 1);
         private string? _clientId = AppConfig.LoadOrCreateClientId();
@@ -54,6 +60,33 @@ namespace PrintOrder
 
         private bool HasSavedAuthState => !string.IsNullOrWhiteSpace(_refreshToken);
         private bool IsAuthenticated => !string.IsNullOrWhiteSpace(_accessToken);
+
+        private sealed class JobStatusUpdateResult
+        {
+            public JobStatusUpdateResult(
+                bool isSuccess,
+                HttpStatusCode statusCode,
+                string? code,
+                string? error,
+                PrintJob? job)
+            {
+                IsSuccess = isSuccess;
+                StatusCode = statusCode;
+                Code = code;
+                Error = error;
+                Job = job;
+            }
+
+            public bool IsSuccess { get; }
+            public HttpStatusCode StatusCode { get; }
+            public string? Code { get; }
+            public string? Error { get; }
+            public PrintJob? Job { get; }
+
+            public bool IsInsufficientCredit =>
+                StatusCode == (HttpStatusCode)402
+                && string.Equals(Code, InsufficientCreditCode, StringComparison.OrdinalIgnoreCase);
+        }
 
         public Form1()
         {
@@ -908,6 +941,64 @@ namespace PrintOrder
             }
         }
 
+        private static string? TryExtractApiCode(string responseBody)
+        {
+            if (string.IsNullOrWhiteSpace(responseBody))
+            {
+                return null;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(responseBody);
+                if (!TryReadString(doc.RootElement, "code", out var code))
+                {
+                    return null;
+                }
+
+                return code;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static PrintJob? TryExtractJobFromResponse(string responseBody)
+        {
+            if (string.IsNullOrWhiteSpace(responseBody))
+            {
+                return null;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(responseBody);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                {
+                    return null;
+                }
+
+                if (doc.RootElement.TryGetProperty("job", out var jobElement)
+                    && jobElement.ValueKind == JsonValueKind.Object)
+                {
+                    return jobElement.Deserialize<PrintJob>(CaseInsensitiveJsonOptions);
+                }
+
+                if (doc.RootElement.TryGetProperty("id", out _)
+                    && doc.RootElement.TryGetProperty("status", out _))
+                {
+                    return doc.RootElement.Deserialize<PrintJob>(CaseInsensitiveJsonOptions);
+                }
+
+                return null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private static bool TryReadString(JsonElement element, string propertyName, out string value)
         {
             if (element.TryGetProperty(propertyName, out var found)
@@ -1160,15 +1251,15 @@ namespace PrintOrder
             }
         }
 
-        private async System.Threading.Tasks.Task PrintJobFromListAsync(PrintJob job)
+        private async System.Threading.Tasks.Task<PrintJob?> PrintJobFromListAsync(PrintJob job)
         {
             if (_jobProcessing)
             {
                 statusLabel.Text = "Masih memproses job lain.";
-                return;
+                return null;
             }
 
-            await ProcessJobAsync(job);
+            return await ProcessJobAsync(job);
         }
 
         private async System.Threading.Tasks.Task RejectJobFromListAsync(PrintJob job)
@@ -1179,15 +1270,17 @@ namespace PrintOrder
                 return;
             }
 
-            await UpdateJobStatusAsync(job.Id, "rejected");
-            statusLabel.Text = $"Job {job.Id} ditolak.";
+            var rejectResult = await UpdateJobStatusAsync(job.Id, "rejected");
+            statusLabel.Text = rejectResult.IsSuccess
+                ? $"Job {job.Id} ditolak."
+                : rejectResult.Error ?? $"Gagal menolak job ({(int)rejectResult.StatusCode}).";
         }
 
-        private async System.Threading.Tasks.Task ProcessJobAsync(PrintJob job)
+        private async System.Threading.Tasks.Task<PrintJob?> ProcessJobAsync(PrintJob job)
         {
             if (_jobProcessing)
             {
-                return;
+                return null;
             }
 
             _jobProcessing = true;
@@ -1202,13 +1295,22 @@ namespace PrintOrder
                 if (IsPrinterOffline(printerName, out var offlineReason))
                 {
                     statusLabel.Text = offlineReason ?? "Printer sedang offline. Job ditunda.";
-                    await UpdateJobStatusAsync(job.Id, "pending");
+                    var pendingResult = await UpdateJobStatusAsync(job.Id, "pending");
+                    if (!pendingResult.IsSuccess)
+                    {
+                        return HandleJobStartDenied(job, pendingResult);
+                    }
+
                     _jobProcessing = false;
                     _activeJobId = null;
-                    return;
+                    return null;
                 }
 
-                await UpdateJobStatusAsync(job.Id, "printing");
+                var printStartResult = await UpdateJobStatusAsync(job.Id, "printing");
+                if (!printStartResult.IsSuccess)
+                {
+                    return HandleJobStartDenied(job, printStartResult);
+                }
 
                 var downloadPath = await DownloadJobFileAsync(job.Id, job.OriginalName);
                 if (string.IsNullOrWhiteSpace(downloadPath))
@@ -1216,7 +1318,7 @@ namespace PrintOrder
                     await UpdateJobStatusAsync(job.Id, "failed");
                     _jobProcessing = false;
                     _activeJobId = null;
-                    return;
+                    return null;
                 }
 
                 _activeJobTempPath = downloadPath;
@@ -1238,7 +1340,7 @@ namespace PrintOrder
                 {
                     waitForEndPrint = true;
                     printDocument1.Print();
-                    return;
+                    return null;
                 }
 
                 var printed = await PrintNonImageAsync(downloadPath, job.PrintConfig);
@@ -1252,6 +1354,8 @@ namespace PrintOrder
                 {
                     await UpdateJobStatusAsync(job.Id, "failed");
                 }
+
+                return null;
             }
             finally
             {
@@ -1266,6 +1370,43 @@ namespace PrintOrder
                     }
                 }
             }
+
+            return null;
+        }
+
+        private PrintJob? HandleJobStartDenied(PrintJob job, JobStatusUpdateResult result)
+        {
+            if (result.IsInsufficientCredit)
+            {
+                LogInsufficientCreditRejection(job, result);
+                statusLabel.Text = InsufficientCreditOperatorMessage;
+                MessageBox.Show(
+                    InsufficientCreditOperatorMessage,
+                    "Kredit Tidak Cukup",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return result.Job;
+            }
+
+            var message = result.StatusCode == HttpStatusCode.Unauthorized
+                ? "Sesi pairing habis. Pair akun ulang sebelum mencetak."
+                : result.Error ?? $"Gagal memulai job cetak ({(int)result.StatusCode}).";
+
+            statusLabel.Text = message;
+            MessageBox.Show(
+                message,
+                "Gagal Mencetak",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return result.Job;
+        }
+
+        private static void LogInsufficientCreditRejection(PrintJob job, JobStatusUpdateResult result)
+        {
+            var serverJobId = string.IsNullOrWhiteSpace(result.Job?.Id) ? job.Id : result.Job.Id;
+            var serverStatus = string.IsNullOrWhiteSpace(result.Job?.Status) ? "-" : result.Job.Status;
+            Trace.TraceWarning(
+                $"Print job rejected because store credit is insufficient. jobId={serverJobId}, serverStatus={serverStatus}, httpStatus={(int)result.StatusCode}");
         }
 
         private void ApplyPrintConfig(PrintJob job)
@@ -1715,7 +1856,7 @@ namespace PrintOrder
             }
         }
 
-        private async System.Threading.Tasks.Task UpdateJobStatusAsync(string jobId, string status)
+        private async System.Threading.Tasks.Task<JobStatusUpdateResult> UpdateJobStatusAsync(string jobId, string status)
         {
             var payload = new { status };
             var json = JsonSerializer.Serialize(payload);
@@ -1724,7 +1865,26 @@ namespace PrintOrder
             {
                 Content = content
             };
-            using var response = await SendAuthorizedAsync(request);
+            try
+            {
+                using var response = await SendAuthorizedAsync(request);
+                var responseBody = await response.Content.ReadAsStringAsync();
+                return new JobStatusUpdateResult(
+                    response.IsSuccessStatusCode,
+                    response.StatusCode,
+                    TryExtractApiCode(responseBody),
+                    TryExtractApiError(responseBody),
+                    TryExtractJobFromResponse(responseBody));
+            }
+            catch
+            {
+                return new JobStatusUpdateResult(
+                    false,
+                    0,
+                    null,
+                    "Tidak bisa menghubungi server.",
+                    null);
+            }
         }
 
         private async System.Threading.Tasks.Task EnsureRegisteredAsync()
