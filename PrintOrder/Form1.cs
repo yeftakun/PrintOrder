@@ -1943,7 +1943,7 @@ namespace PrintOrder
             {
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = _serverBaseUrl,
+                    FileName = BuildPortalUrl(),
                     UseShellExecute = true
                 });
             }
@@ -1951,6 +1951,11 @@ namespace PrintOrder
             {
                 statusLabel.Text = "Tidak bisa membuka portal PrintOrder.";
             }
+        }
+
+        private string BuildPortalUrl()
+        {
+            return $"{_serverBaseUrl.TrimEnd('/')}/portal";
         }
 
         private void ShowDashboardFromTray()
