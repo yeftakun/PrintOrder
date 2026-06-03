@@ -22,7 +22,7 @@ PrintOrder adalah aplikasi desktop Windows untuk menerima dan mencetak tugas cet
 Gunakan installer release:
 
 ```text
-PrintOrder-Setup-1.3.0.exe
+PrintOrder-Setup-1.3.1.exe
 ```
 
 Setelah instalasi:
@@ -69,5 +69,5 @@ Lalu build installer:
 Output installer:
 
 ```text
-artifacts\installer\PrintOrder-Setup-1.3.0.exe
+artifacts\installer\PrintOrder-Setup-1.3.1.exe
 ```

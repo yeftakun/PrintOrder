@@ -1916,8 +1916,9 @@ namespace PrintOrder
         {
             _trayMenu = new ContextMenuStrip(components);
             _trayMenu.Items.Add("Dashboard", null, (_, _) => ShowDashboardFromTray());
+            _trayMenu.Items.Add("Buka Portal", null, (_, _) => OpenPortalFromTray());
             _trayMenu.Items.Add(new ToolStripSeparator());
-            _trayMenu.Items.Add("Close", null, (_, _) => RequestApplicationExit());
+            _trayMenu.Items.Add("Tutup", null, (_, _) => RequestApplicationExit());
 
             _trayIcon = new NotifyIcon(components)
             {
@@ -1934,6 +1935,22 @@ namespace PrintOrder
                     ShowDashboardFromTray();
                 }
             };
+        }
+
+        private void OpenPortalFromTray()
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = _serverBaseUrl,
+                    UseShellExecute = true
+                });
+            }
+            catch
+            {
+                statusLabel.Text = "Tidak bisa membuka portal PrintOrder.";
+            }
         }
 
         private void ShowDashboardFromTray()

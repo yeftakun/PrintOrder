@@ -140,7 +140,7 @@ namespace PrintOrder
             _baseUrlTextBox.BorderStyle = BorderStyle.None;
             _baseUrlTextBox.Font = new Font("Segoe UI", 10.5F, FontStyle.Regular);
             _baseUrlTextBox.ForeColor = UiTheme.Text;
-            _baseUrlTextBox.PlaceholderText = "http://127.0.0.1:3000";
+            _baseUrlTextBox.PlaceholderText = "https://printorder.web.id";
             _baseUrlTextBox.Text = _initialBaseUrl;
             _baseUrlTextBox.SetBounds(14, 11, 448, 24);
             inputHost.Controls.Add(_baseUrlTextBox);
@@ -157,7 +157,7 @@ namespace PrintOrder
             _testResultLabel.ForeColor = UiTheme.MutedText;
             _testResultLabel.Location = new Point(20, 120);
             _testResultLabel.Size = new Size(624, 22);
-            _testResultLabel.Text = "Contoh: http://127.0.0.1:3000";
+            _testResultLabel.Text = "Contoh: https://printorder.web.id";
             section.Controls.Add(_testResultLabel);
 
             return section;

@@ -8,7 +8,7 @@ namespace PrintOrder
 {
     internal static class AppConfig
     {
-        private const string DefaultServerBaseUrl = "http://127.0.0.1:3000";
+        private const string DefaultServerBaseUrl = "https://printorder.web.id";
         private const string StorageFolderName = "PrintOrder";
         private const string ConfigFileName = "printorder.ini";
         private const string ClientIdFileName = "printorder.client-id";

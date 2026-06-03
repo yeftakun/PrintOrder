@@ -30,7 +30,7 @@ Set server URL in this file:
 
 ```ini
 [server]
-base_url=http://127.0.0.1:3000
+base_url=https://printorder.web.id
 ```
 
 ## What it does
