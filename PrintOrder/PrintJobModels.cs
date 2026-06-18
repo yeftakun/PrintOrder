@@ -9,7 +9,23 @@ namespace PrintOrder
         public string? Alias { get; set; }
         public string Status { get; set; } = string.Empty;
         public string CreatedAt { get; set; } = string.Empty;
+        public string? StoredPath { get; set; }
+        public string? FileStatus { get; set; }
         public PrintConfig? PrintConfig { get; set; }
+
+        [JsonPropertyName("stored_path")]
+        public string? StoredPathSnakeCase
+        {
+            get => StoredPath;
+            set => StoredPath = value;
+        }
+
+        [JsonPropertyName("file_status")]
+        public string? FileStatusSnakeCase
+        {
+            get => FileStatus;
+            set => FileStatus = value;
+        }
     }
 
     internal sealed class PrintConfig

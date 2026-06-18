@@ -499,6 +499,7 @@ namespace PrintOrder
                 _allJobs.AddRange(jobs);
                 UpdateMetrics(_allJobs);
                 RenderFilteredJobs();
+                RefreshOpenDetailPage(_allJobs);
                 _statusLabel.Text = $"{jobs.Count} tugas diterima";
             }
             catch
@@ -788,7 +789,9 @@ namespace PrintOrder
                 && AreStringsEquivalent(currentJob.Status, newJob.Status)
                 && AreStringsEquivalent(currentJob.PrintConfig?.PaperSize, newJob.PrintConfig?.PaperSize)
                 && currentJob.PrintConfig?.Copies == newJob.PrintConfig?.Copies
-                && AreStringsEquivalent(currentJob.CreatedAt, newJob.CreatedAt);
+                && AreStringsEquivalent(currentJob.CreatedAt, newJob.CreatedAt)
+                && AreStringsEquivalent(currentJob.StoredPath, newJob.StoredPath)
+                && AreStringsEquivalent(currentJob.FileStatus, newJob.FileStatus);
         }
 
         private static bool AreStringsEquivalent(string? currentValue, string? newValue)
@@ -876,6 +879,34 @@ namespace PrintOrder
             }
 
             _ = LoadJobsAsync();
+        }
+
+        private void RefreshOpenDetailPage(IReadOnlyCollection<PrintJob> jobs)
+        {
+            if (_detailPage == null)
+            {
+                return;
+            }
+
+            var updatedJob = jobs.FirstOrDefault(job =>
+                string.Equals(job.Id, _detailPage.Job.Id, StringComparison.OrdinalIgnoreCase));
+
+            if (updatedJob == null || AreJobsEquivalent(_detailPage.Job, updatedJob))
+            {
+                return;
+            }
+
+            Controls.Remove(_detailPage);
+            _detailPage.Dispose();
+
+            _detailPage = new JobDetailPage(
+                updatedJob,
+                HandlePrintActionAsync,
+                HandleRejectActionAsync,
+                ShowListPage);
+
+            Controls.Add(_detailPage);
+            _detailPage.BringToFront();
         }
 
         private void ResizeRowsToPanel()
@@ -1048,6 +1079,8 @@ namespace PrintOrder
         private readonly JobCommandButton _backButton = new JobCommandButton();
         private readonly JobCommandButton _printButton = new JobCommandButton();
         private readonly JobCommandButton _rejectButton = new JobCommandButton();
+
+        public PrintJob Job => _job;
 
         public JobDetailPage(
             PrintJob job,
@@ -1303,9 +1336,9 @@ namespace PrintOrder
         {
             var body = BuildFieldGroup(
                 BuildDetailRow(DetailIconPresets.Price(), "Estimasi Harga", "-"),
-                BuildDetailRow(DetailIconPresets.Storage(), "Status File", new StatusPill("available")
+                BuildDetailRow(DetailIconPresets.Storage(), "Status File", new StatusPill(_job.FileStatus)
                 {
-                    Size = new Size(106, 34),
+                    Size = new Size(132, 34),
                     Anchor = AnchorStyles.Left,
                     Margin = new Padding(0)
                 }));
@@ -3163,6 +3196,9 @@ namespace PrintOrder
                 "rejected" => "Batal",
                 "available" => "Tersedia",
                 "tersedia" => "Tersedia",
+                "not-available" => "Tidak tersedia",
+                "not_available" => "Tidak tersedia",
+                "unavailable" => "Tidak tersedia",
                 _ => status
             };
         }
@@ -3197,6 +3233,11 @@ namespace PrintOrder
             if (IsStatus(status, "available") || IsStatus(status, "tersedia"))
             {
                 return new JobStatusStyle("Tersedia", UiTheme.Success, UiTheme.SuccessSoft, Color.FromArgb(172, 224, 193));
+            }
+
+            if (IsStatus(status, "not-available") || IsStatus(status, "not_available") || IsStatus(status, "unavailable"))
+            {
+                return new JobStatusStyle("Tidak tersedia", Danger, Color.FromArgb(255, 241, 241), Color.FromArgb(250, 187, 187));
             }
 
             if (IsStatus(status, "rejected"))
