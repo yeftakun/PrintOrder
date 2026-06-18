@@ -4,7 +4,7 @@
 ;   & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" .\PrintOrder.iss
 
 #define MyAppName "PrintOrder"
-#define MyAppVersion "1.3.1"
+#define MyAppVersion "1.3.2"
 #define MyAppPublisher "PrintOrder"
 #define MyAppExeName "PrintOrder.exe"
 #define MyPublishDir "artifacts\publish"

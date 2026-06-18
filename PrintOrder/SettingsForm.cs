@@ -211,7 +211,7 @@ namespace PrintOrder
             _pdfEnginePathLabel.TextAlign = ContentAlignment.MiddleLeft;
             section.Controls.Add(_pdfEnginePathLabel);
 
-            _refreshPdfEngineButton.Text = "Deteksi Ulang";
+            _refreshPdfEngineButton.Text = "Deteksi";
             _refreshPdfEngineButton.UseAccentFill = false;
             _refreshPdfEngineButton.SetBounds(422, 50, 108, 40);
             _refreshPdfEngineButton.Click += (_, _) => RefreshPdfEngineStatus();

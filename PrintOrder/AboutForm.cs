@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
-using System.Reflection;
 using System.Windows.Forms;
 
 namespace PrintOrder
@@ -12,7 +11,6 @@ namespace PrintOrder
         private readonly string _clientId;
         private readonly string _baseUrl;
         private readonly ToolTip _toolTip = new();
-        private Image? _logoImage;
 
         public AboutForm(string? clientId, string baseUrl)
         {
@@ -26,7 +24,7 @@ namespace PrintOrder
         {
             AutoScaleMode = AutoScaleMode.Dpi;
             BackColor = UiTheme.PageBackground;
-            ClientSize = new Size(600, 410);
+            ClientSize = new Size(560, 320);
             Font = new Font("Segoe UI", 10F, FontStyle.Regular);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -40,106 +38,34 @@ namespace PrintOrder
                 Dock = DockStyle.Fill,
                 BackColor = UiTheme.PageBackground,
                 ColumnCount = 1,
-                RowCount = 3,
-                Padding = new Padding(24, 18, 24, 18)
+                RowCount = 2,
+                Padding = new Padding(26, 24, 26, 18)
             };
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
 
-            root.Controls.Add(BuildHeader(), 0, 0);
-            root.Controls.Add(BuildContent(), 0, 1);
-            root.Controls.Add(BuildFooter(), 0, 2);
+            root.Controls.Add(BuildContent(), 0, 0);
+            root.Controls.Add(BuildFooter(), 0, 1);
             Controls.Add(root);
-        }
-
-        private Control BuildHeader()
-        {
-            var panel = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                BackColor = UiTheme.PageBackground,
-                ColumnCount = 2,
-                RowCount = 1,
-                Margin = Padding.Empty
-            };
-            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 54));
-            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-
-            var logo = new PictureBox
-            {
-                Dock = DockStyle.Fill,
-                Margin = new Padding(0, 9, 12, 9),
-                SizeMode = PictureBoxSizeMode.Zoom
-            };
-            _logoImage = TryLoadLogoImage();
-            logo.Image = _logoImage;
-
-            var titleStack = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                BackColor = UiTheme.PageBackground,
-                ColumnCount = 1,
-                RowCount = 2,
-                Margin = new Padding(2, 0, 0, 0)
-            };
-            titleStack.RowStyles.Add(new RowStyle(SizeType.Percent, 58));
-            titleStack.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
-
-            titleStack.Controls.Add(new Label
-            {
-                AutoEllipsis = true,
-                Dock = DockStyle.Fill,
-                Font = new Font("Segoe UI", 14.5F, FontStyle.Bold),
-                ForeColor = UiTheme.Text,
-                Margin = Padding.Empty,
-                Text = "PrintOrder Client",
-                TextAlign = ContentAlignment.BottomLeft
-            }, 0, 0);
-
-            titleStack.Controls.Add(new Label
-            {
-                AutoEllipsis = true,
-                Dock = DockStyle.Fill,
-                Font = new Font("Segoe UI", 9.5F, FontStyle.Regular),
-                ForeColor = UiTheme.MutedText,
-                Margin = Padding.Empty,
-                Text = $"Versi {ResolveVersion()}",
-                TextAlign = ContentAlignment.TopLeft
-            }, 0, 1);
-
-            panel.Controls.Add(logo, 0, 0);
-            panel.Controls.Add(titleStack, 1, 0);
-
-            return panel;
         }
 
         private Control BuildContent()
         {
-            var card = new RoundedPanel
-            {
-                Dock = DockStyle.Fill,
-                FillColor = Color.White,
-                BorderColor = UiTheme.Border,
-                CornerRadius = 10,
-                Padding = new Padding(22, 16, 22, 18)
-            };
-
             var content = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.White,
+                BackColor = UiTheme.PageBackground,
                 ColumnCount = 1,
                 RowCount = 2,
                 Margin = Padding.Empty
             };
-            content.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
+            content.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
             content.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             var details = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.White,
+                BackColor = UiTheme.PageBackground,
                 ColumnCount = 4,
                 RowCount = 4,
                 Margin = Padding.Empty
@@ -162,9 +88,8 @@ namespace PrintOrder
 
             content.Controls.Add(CreateDescriptionLabel(), 0, 0);
             content.Controls.Add(details, 0, 1);
-            card.Controls.Add(content);
 
-            return card;
+            return content;
         }
 
         private Control BuildFooter()
@@ -210,6 +135,7 @@ namespace PrintOrder
             return new Label
             {
                 AutoEllipsis = true,
+                BackColor = UiTheme.PageBackground,
                 Dock = DockStyle.Fill,
                 Font = new Font("Segoe UI", 9.8F, FontStyle.Regular),
                 ForeColor = Color.FromArgb(52, 63, 82),
@@ -224,6 +150,7 @@ namespace PrintOrder
             var labelControl = new Label
             {
                 AutoEllipsis = true,
+                BackColor = UiTheme.PageBackground,
                 Dock = DockStyle.Fill,
                 Font = new Font("Segoe UI", 9.4F, FontStyle.Bold),
                 ForeColor = UiTheme.Text,
@@ -234,6 +161,7 @@ namespace PrintOrder
 
             var separator = new Label
             {
+                BackColor = UiTheme.PageBackground,
                 Dock = DockStyle.Fill,
                 Font = new Font("Segoe UI", 9.4F, FontStyle.Regular),
                 ForeColor = UiTheme.MutedText,
@@ -244,6 +172,7 @@ namespace PrintOrder
 
             var valueControl = new SingleLineTextControl
             {
+                BackColor = UiTheme.PageBackground,
                 Dock = DockStyle.Fill,
                 Font = new Font("Segoe UI", 9.4F, FontStyle.Regular),
                 ForeColor = UiTheme.MutedText,
@@ -267,7 +196,7 @@ namespace PrintOrder
                 parent.Controls.Add(new Panel
                 {
                     Dock = DockStyle.Fill,
-                    BackColor = Color.White,
+                    BackColor = UiTheme.PageBackground,
                     Margin = Padding.Empty
                 }, 3, index);
             }
@@ -327,51 +256,14 @@ namespace PrintOrder
             });
         }
 
-        private static string ResolveVersion()
-        {
-            var informationalVersion = Assembly
-                .GetExecutingAssembly()
-                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-                ?.InformationalVersion;
-
-            var version = string.IsNullOrWhiteSpace(informationalVersion)
-                ? Application.ProductVersion
-                : informationalVersion;
-
-            var metadataIndex = version.IndexOf('+');
-            return metadataIndex > 0 ? version[..metadataIndex] : version;
-        }
-
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
                 _toolTip.Dispose();
-                _logoImage?.Dispose();
-                _logoImage = null;
             }
 
             base.Dispose(disposing);
-        }
-
-        private static Image? TryLoadLogoImage()
-        {
-            var path = Path.Combine(AppContext.BaseDirectory, "Assets", "logo_printorder.png");
-            if (!File.Exists(path))
-            {
-                return null;
-            }
-
-            try
-            {
-                using var stream = File.OpenRead(path);
-                using var image = Image.FromStream(stream);
-                return new Bitmap(image);
-            }
-            catch
-            {
-                return null;
-            }
         }
 
         private sealed class SingleLineTextControl : Control
@@ -385,7 +277,7 @@ namespace PrintOrder
                     ControlStyles.ResizeRedraw,
                     true);
 
-                BackColor = Color.White;
+                BackColor = UiTheme.PageBackground;
             }
 
             protected override void OnPaint(PaintEventArgs e)
