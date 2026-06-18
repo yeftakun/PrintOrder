@@ -123,10 +123,10 @@ namespace PrintOrder
             {
                 AutoSize = false,
                 Location = new Point(88, 22),
-                Size = new Size(420, 56),
+                Size = new Size(650, 56),
                 Font = new Font("Segoe UI", 28F, FontStyle.Bold),
                 ForeColor = UiTheme.Text,
-                Text = "PrintOrder"
+                Text = ResolveDashboardTitle()
             };
 
             var subtitleLabel = new Label

@@ -10,6 +10,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.WebSockets;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -60,6 +61,26 @@ namespace PrintOrder
 
         private bool HasSavedAuthState => !string.IsNullOrWhiteSpace(_refreshToken);
         private bool IsAuthenticated => !string.IsNullOrWhiteSpace(_accessToken);
+
+        private static string ResolveDashboardTitle()
+        {
+            var informationalVersion = Assembly
+                .GetExecutingAssembly()
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion;
+
+            var version = string.IsNullOrWhiteSpace(informationalVersion)
+                ? Application.ProductVersion
+                : informationalVersion;
+
+            var metadataIndex = version.IndexOf('+');
+            if (metadataIndex > 0)
+            {
+                version = version[..metadataIndex];
+            }
+
+            return $"PrintOrder Client v{version}";
+        }
 
         private sealed class JobStatusUpdateResult
         {
