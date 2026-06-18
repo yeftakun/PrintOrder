@@ -31,12 +31,17 @@ namespace PrintOrder
         private readonly FlowLayoutPanel _jobRowsPanel = new BufferedFlowLayoutPanel();
         private readonly Label _emptyStateLabel = new Label();
         private readonly JobCommandButton _filterButton = new JobCommandButton();
+        private readonly CheckBox _bulkSelectAllCheckBox = new CheckBox();
+        private readonly Label _bulkSelectionLabel = new Label();
+        private readonly JobCommandButton _bulkPrintButton = new JobCommandButton();
+        private readonly JobCommandButton _bulkRejectButton = new JobCommandButton();
         private readonly MetricCard _totalMetric = new MetricCard("Total", UiTheme.Accent);
         private readonly MetricCard _readyMetric = new MetricCard("Siap", UiTheme.Success);
         private readonly MetricCard _pendingMetric = new MetricCard("Tertunda", JobVisuals.Warning);
         private readonly MetricCard _cancelledMetric = new MetricCard("Batal", JobVisuals.Danger);
         private readonly MetricCard _doneMetric = new MetricCard("Berhasil", JobVisuals.Done);
         private readonly List<PrintJob> _allJobs = new List<PrintJob>();
+        private readonly HashSet<string> _selectedJobIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private Control? _listPage;
         private JobDetailPage? _detailPage;
         private readonly System.Windows.Forms.Timer _refreshTimer = new System.Windows.Forms.Timer
@@ -49,6 +54,7 @@ namespace PrintOrder
         private bool _pendingRefresh;
         private bool _hasRenderedJobs;
         private bool _isJobActionRunning;
+        private bool _updatingBulkControls;
 
         public JobListForm(
             string serverBaseUrl,
@@ -104,7 +110,7 @@ namespace PrintOrder
                 RowCount = 4
             };
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 158));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 120));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 168));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
 
@@ -190,12 +196,14 @@ namespace PrintOrder
             {
                 Dock = DockStyle.Fill,
                 BackColor = UiTheme.PageBackground,
-                Padding = new Padding(34, 18, 34, 34)
+                Padding = new Padding(34, 18, 34, 18)
             };
 
             var toolbar = new Panel
             {
-                Dock = DockStyle.Top,
+                Anchor = AnchorStyles.Left | AnchorStyles.Top | AnchorStyles.Right,
+                Location = new Point(34, 18),
+                Width = 1020,
                 Height = 58,
                 BackColor = UiTheme.PageBackground
             };
@@ -233,9 +241,88 @@ namespace PrintOrder
             toolbar.Resize += (_, _) => ArrangeToolbarControls(toolbar, searchBox, metrics);
             toolbar.HandleCreated += (_, _) => ArrangeToolbarControls(toolbar, searchBox, metrics);
 
+            var bulkPanel = BuildBulkActionPanel();
+            bulkPanel.Location = new Point(34, 86);
+            bulkPanel.Size = new Size(1020, 44);
+            bulkPanel.Anchor = AnchorStyles.Left | AnchorStyles.Top | AnchorStyles.Right;
+            host.Resize += (_, _) => ArrangeToolbarHostControls(host, toolbar, bulkPanel);
+            host.HandleCreated += (_, _) => ArrangeToolbarHostControls(host, toolbar, bulkPanel);
+
             host.Controls.Add(toolbar);
+            host.Controls.Add(bulkPanel);
 
             return host;
+        }
+
+        private static void ArrangeToolbarHostControls(Control host, Control toolbar, Control bulkPanel)
+        {
+            var contentWidth = Math.Max(0, host.ClientSize.Width - 68);
+            toolbar.SetBounds(34, 18, contentWidth, 58);
+            bulkPanel.SetBounds(34, 86, contentWidth, 44);
+        }
+
+        private Control BuildBulkActionPanel()
+        {
+            var panel = new Panel
+            {
+                BackColor = UiTheme.PageBackground
+            };
+
+            _bulkSelectAllCheckBox.AutoSize = true;
+            _bulkSelectAllCheckBox.ThreeState = false;
+            _bulkSelectAllCheckBox.Font = new Font("Segoe UI", 10F, FontStyle.Regular);
+            _bulkSelectAllCheckBox.ForeColor = UiTheme.Text;
+            _bulkSelectAllCheckBox.Location = new Point(0, 11);
+            _bulkSelectAllCheckBox.Text = "Pilih semua yang terlihat";
+            _bulkSelectAllCheckBox.CheckStateChanged += (_, _) => HandleSelectAllChanged();
+
+            _bulkSelectionLabel.AutoEllipsis = true;
+            _bulkSelectionLabel.Font = new Font("Segoe UI", 10F, FontStyle.Regular);
+            _bulkSelectionLabel.ForeColor = UiTheme.MutedText;
+            _bulkSelectionLabel.Location = new Point(220, 10);
+            _bulkSelectionLabel.Size = new Size(220, 24);
+            _bulkSelectionLabel.TextAlign = ContentAlignment.MiddleLeft;
+            _bulkSelectionLabel.Text = "0 tugas dipilih";
+
+            _bulkPrintButton.Text = "Cetak Terpilih";
+            _bulkPrintButton.Glyph = JobGlyph.None;
+            _bulkPrintButton.Filled = false;
+            _bulkPrintButton.AccentColor = UiTheme.Accent;
+            _bulkPrintButton.Size = new Size(148, 40);
+            _bulkPrintButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            _bulkPrintButton.Click += async (_, _) => await HandleBulkPrintActionAsync();
+
+            _bulkRejectButton.Text = "Tolak Terpilih";
+            _bulkRejectButton.Glyph = JobGlyph.None;
+            _bulkRejectButton.Filled = false;
+            _bulkRejectButton.AccentColor = UiTheme.Accent;
+            _bulkRejectButton.Size = new Size(142, 40);
+            _bulkRejectButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            _bulkRejectButton.Click += async (_, _) => await HandleBulkRejectActionAsync();
+
+            panel.Controls.Add(_bulkSelectAllCheckBox);
+            panel.Controls.Add(_bulkSelectionLabel);
+            panel.Controls.Add(_bulkPrintButton);
+            panel.Controls.Add(_bulkRejectButton);
+
+            panel.Resize += (_, _) => ArrangeBulkActionControls(panel);
+            panel.HandleCreated += (_, _) =>
+            {
+                ArrangeBulkActionControls(panel);
+                UpdateBulkActionControls();
+            };
+
+            return panel;
+        }
+
+        private void ArrangeBulkActionControls(Control panel)
+        {
+            const int gap = 10;
+            var rejectLeft = Math.Max(0, panel.ClientSize.Width - _bulkRejectButton.Width);
+            var printLeft = Math.Max(0, rejectLeft - gap - _bulkPrintButton.Width);
+
+            _bulkPrintButton.Location = new Point(printLeft, 2);
+            _bulkRejectButton.Location = new Point(rejectLeft, 2);
         }
 
         private void ArrangeToolbarControls(Panel toolbar, Control searchBox, FlowLayoutPanel metrics)
@@ -459,6 +546,7 @@ namespace PrintOrder
                 {
                     _statusLabel.Text = "Client belum terhubung.";
                     _allJobs.Clear();
+                    ClearSelection();
                     UpdateMetrics(_allJobs);
                     RenderFilteredJobs();
                     return;
@@ -475,6 +563,7 @@ namespace PrintOrder
                 {
                     _statusLabel.Text = "Perlu login mitra untuk melihat job.";
                     _allJobs.Clear();
+                    ClearSelection();
                     UpdateMetrics(_allJobs);
                     RenderFilteredJobs();
                     return;
@@ -497,6 +586,7 @@ namespace PrintOrder
 
                 _allJobs.Clear();
                 _allJobs.AddRange(jobs);
+                PruneSelectedJobs();
                 UpdateMetrics(_allJobs);
                 RenderFilteredJobs();
                 RefreshOpenDetailPage(_allJobs);
@@ -520,15 +610,30 @@ namespace PrintOrder
 
         private void SetJobActionsBusy(bool busy)
         {
+            SetJobActionsBusy(busy, lockListControls: false);
+        }
+
+        private void SetJobActionsBusy(bool busy, bool lockListControls)
+        {
             _isJobActionRunning = busy;
+
+            if (lockListControls)
+            {
+                _refreshButton.Enabled = !busy;
+                _filterButton.Enabled = !busy;
+                _searchTextBox.Enabled = !busy;
+            }
 
             foreach (Control control in _jobRowsPanel.Controls)
             {
                 if (control is JobRowControl row)
                 {
                     row.SetActionsEnabled(!busy);
+                    row.SetSelectionEnabled(!busy);
                 }
             }
+
+            UpdateBulkActionControls();
         }
 
         private void ShowFilterDialog()
@@ -550,6 +655,125 @@ namespace PrintOrder
             _filterButton.Text = activeCount == 0 ? string.Empty : activeCount.ToString();
             _filterButton.AccentColor = activeCount == 0 ? UiTheme.Text : UiTheme.Accent;
             _filterButton.Invalidate();
+        }
+
+        private void HandleSelectAllChanged()
+        {
+            if (_updatingBulkControls || _bulkSelectAllCheckBox.CheckState == CheckState.Indeterminate)
+            {
+                return;
+            }
+
+            var selected = _bulkSelectAllCheckBox.CheckState == CheckState.Checked;
+            foreach (var job in BuildFilteredJobs())
+            {
+                SetJobSelected(job.Id, selected, updateControls: false);
+            }
+
+            RenderFilteredJobs();
+        }
+
+        private void SetJobSelected(string? jobId, bool selected, bool updateControls = true)
+        {
+            if (string.IsNullOrWhiteSpace(jobId))
+            {
+                return;
+            }
+
+            if (selected)
+            {
+                _selectedJobIds.Add(jobId);
+            }
+            else
+            {
+                _selectedJobIds.Remove(jobId);
+            }
+
+            if (updateControls)
+            {
+                UpdateBulkActionControls();
+            }
+        }
+
+        private void ClearSelection()
+        {
+            _selectedJobIds.Clear();
+            UpdateBulkActionControls();
+        }
+
+        private void PruneSelectedJobs()
+        {
+            if (_selectedJobIds.Count == 0)
+            {
+                return;
+            }
+
+            var existingIds = _allJobs
+                .Where(job => !string.IsNullOrWhiteSpace(job.Id))
+                .Select(job => job.Id)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            _selectedJobIds.RemoveWhere(id => !existingIds.Contains(id));
+        }
+
+        private List<PrintJob> GetSelectedJobs()
+        {
+            return _allJobs
+                .Where(job => _selectedJobIds.Contains(job.Id))
+                .ToList();
+        }
+
+        private List<PrintJob> GetBulkPrintableJobs()
+        {
+            return GetSelectedJobs()
+                .Where(IsBulkPrintEligible)
+                .ToList();
+        }
+
+        private List<PrintJob> GetBulkRejectableJobs()
+        {
+            return GetSelectedJobs()
+                .Where(IsBulkRejectEligible)
+                .ToList();
+        }
+
+        private static bool IsBulkPrintEligible(PrintJob job)
+        {
+            return JobVisuals.IsStatus(job.Status, "ready") || JobVisuals.IsStatus(job.Status, "pending");
+        }
+
+        private static bool IsBulkRejectEligible(PrintJob job)
+        {
+            return JobVisuals.IsStatus(job.Status, "ready");
+        }
+
+        private void UpdateBulkActionControls()
+        {
+            var selectedCount = _selectedJobIds.Count;
+            var visibleJobs = BuildFilteredJobs();
+            var visibleSelectableCount = visibleJobs.Count;
+            var visibleSelectedCount = visibleJobs.Count(job => _selectedJobIds.Contains(job.Id));
+            var hasPrintableJobs = _allJobs.Any(job => _selectedJobIds.Contains(job.Id) && IsBulkPrintEligible(job));
+            var hasRejectableJobs = _allJobs.Any(job => _selectedJobIds.Contains(job.Id) && IsBulkRejectEligible(job));
+
+            _updatingBulkControls = true;
+            try
+            {
+                _bulkSelectionLabel.Text = $"{selectedCount} tugas dipilih";
+                _bulkSelectAllCheckBox.Enabled = !_isJobActionRunning && visibleSelectableCount > 0;
+                _bulkSelectAllCheckBox.CheckState = visibleSelectedCount == 0
+                    ? CheckState.Unchecked
+                    : visibleSelectedCount == visibleSelectableCount
+                        ? CheckState.Checked
+                        : CheckState.Indeterminate;
+            }
+            finally
+            {
+                _updatingBulkControls = false;
+            }
+
+            _bulkPrintButton.Enabled = !_isJobActionRunning && hasPrintableJobs;
+            _bulkRejectButton.Enabled = !_isJobActionRunning && hasRejectableJobs;
         }
 
         private async Task<PrintJob?> HandlePrintActionAsync(PrintJob job)
@@ -644,6 +868,136 @@ namespace PrintOrder
             finally
             {
                 SetJobActionsBusy(false);
+            }
+        }
+
+        private async Task HandleBulkPrintActionAsync()
+        {
+            if (_isJobActionRunning)
+            {
+                return;
+            }
+
+            var selectedJobs = GetSelectedJobs();
+            var jobsToPrint = selectedJobs.Where(IsBulkPrintEligible).ToList();
+            if (jobsToPrint.Count == 0)
+            {
+                _statusLabel.Text = "Tidak ada tugas terpilih yang siap dicetak.";
+                return;
+            }
+
+            var confirmation = MessageBox.Show(
+                this,
+                $"Cetak {jobsToPrint.Count} tugas terpilih?",
+                "Konfirmasi Cetak",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+            if (confirmation != DialogResult.Yes)
+            {
+                return;
+            }
+
+            var succeeded = 0;
+            var skipped = selectedJobs.Count - jobsToPrint.Count;
+            var failed = 0;
+
+            SetJobActionsBusy(true, lockListControls: true);
+            try
+            {
+                for (var i = 0; i < jobsToPrint.Count; i++)
+                {
+                    var job = jobsToPrint[i];
+                    var latestJob = await FetchJobAsync(job.Id);
+                    if (latestJob == null || !IsBulkPrintEligible(latestJob))
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    _statusLabel.Text = $"Mencetak {i + 1} dari {jobsToPrint.Count}: {latestJob.OriginalName}...";
+                    try
+                    {
+                        await _printJobAsync(latestJob);
+                        succeeded++;
+                    }
+                    catch
+                    {
+                        failed++;
+                    }
+                }
+
+                ClearSelection();
+                await LoadJobsAsync();
+                _statusLabel.Text = $"Bulk cetak selesai: {succeeded} berhasil, {skipped} dilewati, {failed} gagal.";
+            }
+            finally
+            {
+                SetJobActionsBusy(false, lockListControls: true);
+            }
+        }
+
+        private async Task HandleBulkRejectActionAsync()
+        {
+            if (_isJobActionRunning)
+            {
+                return;
+            }
+
+            var selectedJobs = GetSelectedJobs();
+            var jobsToReject = selectedJobs.Where(IsBulkRejectEligible).ToList();
+            if (jobsToReject.Count == 0)
+            {
+                _statusLabel.Text = "Tidak ada tugas terpilih yang bisa ditolak.";
+                return;
+            }
+
+            var confirmation = MessageBox.Show(
+                this,
+                $"Tolak {jobsToReject.Count} tugas terpilih? Tindakan ini akan membatalkan tugas tersebut.",
+                "Konfirmasi Tolak",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning);
+            if (confirmation != DialogResult.Yes)
+            {
+                return;
+            }
+
+            var succeeded = 0;
+            var skipped = selectedJobs.Count - jobsToReject.Count;
+            var failed = 0;
+
+            SetJobActionsBusy(true, lockListControls: true);
+            try
+            {
+                for (var i = 0; i < jobsToReject.Count; i++)
+                {
+                    var job = jobsToReject[i];
+                    var latestJob = await FetchJobAsync(job.Id);
+                    if (latestJob == null || !IsBulkRejectEligible(latestJob))
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    _statusLabel.Text = $"Menolak {i + 1} dari {jobsToReject.Count}: {latestJob.OriginalName}...";
+                    try
+                    {
+                        await _rejectJobAsync(latestJob);
+                        succeeded++;
+                    }
+                    catch
+                    {
+                        failed++;
+                    }
+                }
+
+                ClearSelection();
+                await LoadJobsAsync();
+                _statusLabel.Text = $"Bulk tolak selesai: {succeeded} berhasil, {skipped} dilewati, {failed} gagal.";
+            }
+            finally
+            {
+                SetJobActionsBusy(false, lockListControls: true);
             }
         }
 
@@ -745,6 +1099,7 @@ namespace PrintOrder
 
             RenderJobRows(jobs);
             UpdateFilteredStatus(jobs.Count);
+            UpdateBulkActionControls();
         }
 
         private List<PrintJob> BuildFilteredJobs()
@@ -822,11 +1177,13 @@ namespace PrintOrder
 
                 foreach (var job in jobs)
                 {
-                    var row = new JobRowControl(job);
+                    var row = new JobRowControl(job, _selectedJobIds.Contains(job.Id));
+                    row.SelectionChanged += (_, selected) => SetJobSelected(job.Id, selected);
                     row.DetailRequested += (_, _) => ShowJobDetail(job);
                     row.PrintRequested += async (_, _) => await HandlePrintActionAsync(job);
                     row.RejectRequested += async (_, _) => await HandleRejectActionAsync(job);
                     row.SetActionsEnabled(!_isJobActionRunning);
+                    row.SetSelectionEnabled(!_isJobActionRunning);
                     _jobRowsPanel.Controls.Add(row);
                 }
 
@@ -1734,6 +2091,7 @@ namespace PrintOrder
 
     internal sealed class JobRowControl : RoundedPanel
     {
+        private readonly CheckBox _selectionCheckBox = new CheckBox();
         private readonly JobCommandButton _printButton = new JobCommandButton();
         private readonly JobCommandButton _rejectButton = new JobCommandButton();
         private readonly bool _canPrint;
@@ -1742,8 +2100,9 @@ namespace PrintOrder
         public event EventHandler? DetailRequested;
         public event EventHandler? PrintRequested;
         public event EventHandler? RejectRequested;
+        public event EventHandler<bool>? SelectionChanged;
 
-        public JobRowControl(PrintJob job)
+        public JobRowControl(PrintJob job, bool selected)
         {
             CornerRadius = 10;
             FillColor = Color.White;
@@ -1755,7 +2114,7 @@ namespace PrintOrder
             _canPrint = JobVisuals.IsStatus(job.Status, "ready") || JobVisuals.IsStatus(job.Status, "pending");
             _canReject = JobVisuals.IsStatus(job.Status, "ready");
 
-            BuildLayout(job);
+            BuildLayout(job, selected);
         }
 
         public void SetActionsEnabled(bool enabled)
@@ -1764,7 +2123,12 @@ namespace PrintOrder
             _rejectButton.Enabled = enabled && _canReject;
         }
 
-        private void BuildLayout(PrintJob job)
+        public void SetSelectionEnabled(bool enabled)
+        {
+            _selectionCheckBox.Enabled = enabled;
+        }
+
+        private void BuildLayout(PrintJob job, bool selected)
         {
             var layout = new TableLayoutPanel
             {
@@ -1778,7 +2142,7 @@ namespace PrintOrder
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             JobColumnLayout.Apply(layout);
 
-            layout.Controls.Add(BuildDocumentCell(job), 0, 0);
+            layout.Controls.Add(BuildDocumentCell(job, selected), 0, 0);
             layout.Controls.Add(CreateCellLabel(string.IsNullOrWhiteSpace(job.Alias) ? "-" : job.Alias, ContentAlignment.MiddleLeft), 1, 0);
             layout.Controls.Add(CreateCellLabel(job.PrintConfig?.PaperSize ?? "-", ContentAlignment.MiddleLeft), 2, 0);
             layout.Controls.Add(CreateCellLabel(ResolveCopies(job), ContentAlignment.MiddleCenter), 3, 0);
@@ -1790,19 +2154,26 @@ namespace PrintOrder
             WireDetailOpen(this);
         }
 
-        private Control BuildDocumentCell(PrintJob job)
+        private Control BuildDocumentCell(PrintJob job, bool selected)
         {
             var panel = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.White,
-                ColumnCount = 2,
+                ColumnCount = 3,
                 RowCount = 1,
                 Margin = new Padding(0)
             };
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 32));
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 54));
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+            _selectionCheckBox.AutoSize = true;
+            _selectionCheckBox.Anchor = AnchorStyles.Left;
+            _selectionCheckBox.Margin = new Padding(0, 0, 8, 0);
+            _selectionCheckBox.Checked = selected;
+            _selectionCheckBox.CheckedChanged += (_, _) => SelectionChanged?.Invoke(this, _selectionCheckBox.Checked);
 
             var icon = new DocumentTypeIcon
             {
@@ -1814,8 +2185,9 @@ namespace PrintOrder
 
             var label = CreateCellLabel(job.OriginalName, ContentAlignment.MiddleLeft);
 
-            panel.Controls.Add(icon, 0, 0);
-            panel.Controls.Add(label, 1, 0);
+            panel.Controls.Add(_selectionCheckBox, 0, 0);
+            panel.Controls.Add(icon, 1, 0);
+            panel.Controls.Add(label, 2, 0);
 
             return panel;
         }
@@ -1898,7 +2270,7 @@ namespace PrintOrder
 
         private void WireDetailOpen(Control control)
         {
-            if (control is JobCommandButton)
+            if (control is JobCommandButton || control is CheckBox)
             {
                 return;
             }
