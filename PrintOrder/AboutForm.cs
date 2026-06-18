@@ -26,7 +26,7 @@ namespace PrintOrder
         {
             AutoScaleMode = AutoScaleMode.Dpi;
             BackColor = UiTheme.PageBackground;
-            ClientSize = new Size(560, 392);
+            ClientSize = new Size(600, 410);
             Font = new Font("Segoe UI", 10F, FontStyle.Regular);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -41,11 +41,11 @@ namespace PrintOrder
                 BackColor = UiTheme.PageBackground,
                 ColumnCount = 1,
                 RowCount = 3,
-                Padding = new Padding(24, 15, 24, 15)
+                Padding = new Padding(24, 18, 24, 18)
             };
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
 
             root.Controls.Add(BuildHeader(), 0, 0);
             root.Controls.Add(BuildContent(), 0, 1);
@@ -63,13 +63,13 @@ namespace PrintOrder
                 RowCount = 1,
                 Margin = Padding.Empty
             };
-            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 58));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 54));
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
             var logo = new PictureBox
             {
                 Dock = DockStyle.Fill,
-                Margin = new Padding(0, 5, 12, 9),
+                Margin = new Padding(0, 9, 12, 9),
                 SizeMode = PictureBoxSizeMode.Zoom
             };
             _logoImage = TryLoadLogoImage();
@@ -81,7 +81,7 @@ namespace PrintOrder
                 BackColor = UiTheme.PageBackground,
                 ColumnCount = 1,
                 RowCount = 2,
-                Margin = Padding.Empty
+                Margin = new Padding(2, 0, 0, 0)
             };
             titleStack.RowStyles.Add(new RowStyle(SizeType.Percent, 58));
             titleStack.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
@@ -90,7 +90,7 @@ namespace PrintOrder
             {
                 AutoEllipsis = true,
                 Dock = DockStyle.Fill,
-                Font = new Font("Segoe UI", 15F, FontStyle.Bold),
+                Font = new Font("Segoe UI", 14.5F, FontStyle.Bold),
                 ForeColor = UiTheme.Text,
                 Margin = Padding.Empty,
                 Text = "PrintOrder Client",
@@ -121,8 +121,8 @@ namespace PrintOrder
                 Dock = DockStyle.Fill,
                 FillColor = Color.White,
                 BorderColor = UiTheme.Border,
-                CornerRadius = 12,
-                Padding = new Padding(18, 14, 18, 14)
+                CornerRadius = 10,
+                Padding = new Padding(22, 16, 22, 18)
             };
 
             var content = new TableLayoutPanel
@@ -133,7 +133,7 @@ namespace PrintOrder
                 RowCount = 2,
                 Margin = Padding.Empty
             };
-            content.RowStyles.Add(new RowStyle(SizeType.Absolute, 56));
+            content.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
             content.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             var details = new TableLayoutPanel
@@ -144,10 +144,10 @@ namespace PrintOrder
                 RowCount = 4,
                 Margin = Padding.Empty
             };
-            details.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112));
+            details.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 106));
             details.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 14));
             details.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            details.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 74));
+            details.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 88));
 
             for (var i = 0; i < 4; i++)
             {
@@ -157,7 +157,8 @@ namespace PrintOrder
             AddInfoRow(details, 0, "Runtime", ".NET 8 Windows");
             AddInfoRow(details, 1, "Client ID", _clientId, CreateSmallButton("Copy", CopyClientId));
             AddInfoRow(details, 2, "Base URL", _baseUrl);
-            AddInfoRow(details, 3, "Konfigurasi", AppConfig.GetConfigFilePath(), CreateSmallButton("Buka", OpenConfigFolder));
+            var configPath = AppConfig.GetConfigFilePath();
+            AddInfoRow(details, 3, "Konfigurasi", configPath, CreateSmallButton("Buka", OpenConfigFolder), CreateConfigPathDisplay(configPath));
 
             content.Controls.Add(CreateDescriptionLabel(), 0, 0);
             content.Controls.Add(details, 0, 1);
@@ -194,8 +195,9 @@ namespace PrintOrder
             {
                 Text = "Tutup",
                 UseAccentFill = true,
-                Dock = DockStyle.Fill,
-                Margin = new Padding(0, 8, 0, 0)
+                Anchor = AnchorStyles.Right | AnchorStyles.Bottom,
+                Margin = new Padding(0, 8, 0, 0),
+                Size = new Size(118, 38)
             };
             closeButton.Click += (_, _) => Close();
             footer.Controls.Add(closeButton, 1, 0);
@@ -217,7 +219,7 @@ namespace PrintOrder
             };
         }
 
-        private void AddInfoRow(TableLayoutPanel parent, int index, string label, string value, Control? action = null)
+        private void AddInfoRow(TableLayoutPanel parent, int index, string label, string value, Control? action = null, string? displayValue = null)
         {
             var labelControl = new Label
             {
@@ -240,15 +242,13 @@ namespace PrintOrder
                 TextAlign = ContentAlignment.MiddleCenter
             };
 
-            var valueControl = new Label
+            var valueControl = new SingleLineTextControl
             {
-                AutoEllipsis = true,
                 Dock = DockStyle.Fill,
                 Font = new Font("Segoe UI", 9.4F, FontStyle.Regular),
                 ForeColor = UiTheme.MutedText,
-                Margin = new Padding(10, 0, action == null ? 4 : 10, 0),
-                Text = value,
-                TextAlign = ContentAlignment.MiddleLeft
+                Margin = new Padding(10, 0, action == null ? 4 : 12, 0),
+                Text = displayValue ?? value
             };
             _toolTip.SetToolTip(valueControl, value);
 
@@ -258,8 +258,8 @@ namespace PrintOrder
 
             if (action != null)
             {
-                action.Dock = DockStyle.Fill;
-                action.Margin = new Padding(0, 2, 4, 2);
+                action.Anchor = AnchorStyles.Right;
+                action.Margin = new Padding(0, 3, 4, 3);
                 parent.Controls.Add(action, 3, index);
             }
             else
@@ -279,10 +279,28 @@ namespace PrintOrder
             {
                 Text = text,
                 UseAccentFill = false,
-                Font = new Font("Segoe UI", 9F, FontStyle.Bold)
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                CornerRadius = 8,
+                Size = new Size(70, 34)
             };
             button.Click += click;
             return button;
+        }
+
+        private static string CreateConfigPathDisplay(string path)
+        {
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (!string.IsNullOrWhiteSpace(localAppData) &&
+                path.StartsWith(localAppData, StringComparison.OrdinalIgnoreCase))
+            {
+                var relative = path[localAppData.Length..].TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (!string.IsNullOrWhiteSpace(relative))
+                {
+                    return $@"%LocalAppData%\{relative}";
+                }
+            }
+
+            return path;
         }
 
         private void CopyClientId(object? sender, EventArgs e)
@@ -353,6 +371,39 @@ namespace PrintOrder
             catch
             {
                 return null;
+            }
+        }
+
+        private sealed class SingleLineTextControl : Control
+        {
+            public SingleLineTextControl()
+            {
+                SetStyle(
+                    ControlStyles.UserPaint |
+                    ControlStyles.AllPaintingInWmPaint |
+                    ControlStyles.OptimizedDoubleBuffer |
+                    ControlStyles.ResizeRedraw,
+                    true);
+
+                BackColor = Color.White;
+            }
+
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                base.OnPaint(e);
+
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    Text,
+                    Font,
+                    ClientRectangle,
+                    ForeColor,
+                    TextFormatFlags.Left |
+                    TextFormatFlags.VerticalCenter |
+                    TextFormatFlags.SingleLine |
+                    TextFormatFlags.EndEllipsis |
+                    TextFormatFlags.NoPrefix |
+                    TextFormatFlags.NoPadding);
             }
         }
     }
