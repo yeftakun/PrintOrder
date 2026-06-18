@@ -28,7 +28,7 @@ namespace PrintOrder
         private readonly TextBox _searchTextBox = new TextBox();
         private readonly JobCommandButton _refreshButton = new JobCommandButton();
         private readonly Label _statusLabel = new Label();
-        private readonly FlowLayoutPanel _jobRowsPanel = new FlowLayoutPanel();
+        private readonly FlowLayoutPanel _jobRowsPanel = new BufferedFlowLayoutPanel();
         private readonly Label _emptyStateLabel = new Label();
         private readonly JobCommandButton _filterButton = new JobCommandButton();
         private readonly MetricCard _totalMetric = new MetricCard("Total", UiTheme.Accent);
@@ -47,6 +47,7 @@ namespace PrintOrder
         private JobFilterState _filterState = JobFilterState.Default;
         private bool _isLoading;
         private bool _pendingRefresh;
+        private bool _hasRenderedJobs;
 
         public JobListForm(
             string serverBaseUrl,
@@ -488,6 +489,12 @@ namespace PrintOrder
                 var body = await response.Content.ReadAsStringAsync();
                 var jobs = DeserializeVisibleJobs(body);
 
+                if (_hasRenderedJobs && AreJobsEquivalent(_allJobs, jobs))
+                {
+                    UpdateFilteredStatus(BuildFilteredJobs().Count);
+                    return;
+                }
+
                 _allJobs.Clear();
                 _allJobs.AddRange(jobs);
                 UpdateMetrics(_allJobs);
@@ -734,16 +741,60 @@ namespace PrintOrder
 
         private void RenderFilteredJobs()
         {
+            var jobs = BuildFilteredJobs();
+
+            RenderJobRows(jobs);
+            UpdateFilteredStatus(jobs.Count);
+        }
+
+        private List<PrintJob> BuildFilteredJobs()
+        {
             var query = (_searchTextBox.Text ?? string.Empty).Trim();
-            var jobs = _allJobs
+            return _allJobs
                 .Where(job => string.IsNullOrWhiteSpace(query) || MatchesSearch(job, query))
                 .Where(job => _filterState.Matches(job))
                 .ToList();
+        }
 
-            RenderJobRows(jobs);
-            _statusLabel.Text = jobs.Count == _allJobs.Count
+        private void UpdateFilteredStatus(int visibleCount)
+        {
+            _statusLabel.Text = visibleCount == _allJobs.Count
                 ? $"{_allJobs.Count} tugas tersinkron - sesi aktif saja"
-                : $"Menampilkan {jobs.Count} dari {_allJobs.Count} tugas - sesi aktif saja";
+                : $"Menampilkan {visibleCount} dari {_allJobs.Count} tugas - sesi aktif saja";
+        }
+
+        private static bool AreJobsEquivalent(IReadOnlyList<PrintJob> currentJobs, IReadOnlyList<PrintJob> newJobs)
+        {
+            if (currentJobs.Count != newJobs.Count)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < currentJobs.Count; i++)
+            {
+                if (!AreJobsEquivalent(currentJobs[i], newJobs[i]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool AreJobsEquivalent(PrintJob currentJob, PrintJob newJob)
+        {
+            return AreStringsEquivalent(currentJob.Id, newJob.Id)
+                && AreStringsEquivalent(currentJob.OriginalName, newJob.OriginalName)
+                && AreStringsEquivalent(currentJob.Alias, newJob.Alias)
+                && AreStringsEquivalent(currentJob.Status, newJob.Status)
+                && AreStringsEquivalent(currentJob.PrintConfig?.PaperSize, newJob.PrintConfig?.PaperSize)
+                && currentJob.PrintConfig?.Copies == newJob.PrintConfig?.Copies
+                && AreStringsEquivalent(currentJob.CreatedAt, newJob.CreatedAt);
+        }
+
+        private static bool AreStringsEquivalent(string? currentValue, string? newValue)
+        {
+            return string.Equals(currentValue, newValue, StringComparison.Ordinal);
         }
 
         private static bool MatchesSearch(PrintJob job, string query)
@@ -788,6 +839,7 @@ namespace PrintOrder
                 : "Tidak ada tugas yang cocok dengan pencarian.";
             _emptyStateLabel.Visible = jobs.Count == 0;
             _jobRowsPanel.Visible = jobs.Count > 0;
+            _hasRenderedJobs = true;
         }
 
         private void ShowJobDetail(PrintJob job)
@@ -969,6 +1021,21 @@ namespace PrintOrder
             _refreshTimer.Stop();
             _refreshTimer.Dispose();
             base.OnFormClosed(e);
+        }
+    }
+
+    internal sealed class BufferedFlowLayoutPanel : FlowLayoutPanel
+    {
+        public BufferedFlowLayoutPanel()
+        {
+            DoubleBuffered = true;
+            ResizeRedraw = true;
+
+            SetStyle(
+                ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer |
+                ControlStyles.ResizeRedraw,
+                true);
         }
     }
 

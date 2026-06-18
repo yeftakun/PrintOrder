@@ -3,7 +3,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Windows.Forms;
-
+// yefta ganteng -yuda
 namespace PrintOrder
 {
     internal sealed class LoginForm : PairingDialogBase
