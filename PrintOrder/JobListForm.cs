@@ -48,6 +48,7 @@ namespace PrintOrder
         private bool _isLoading;
         private bool _pendingRefresh;
         private bool _hasRenderedJobs;
+        private bool _isJobActionRunning;
 
         public JobListForm(
             string serverBaseUrl,
@@ -450,7 +451,6 @@ namespace PrintOrder
             }
 
             _isLoading = true;
-            SetBusy(true);
 
             try
             {
@@ -508,7 +508,6 @@ namespace PrintOrder
             finally
             {
                 _isLoading = false;
-                SetBusy(false);
 
                 if (_pendingRefresh)
                 {
@@ -518,11 +517,9 @@ namespace PrintOrder
             }
         }
 
-        private void SetBusy(bool busy)
+        private void SetJobActionsBusy(bool busy)
         {
-            _refreshButton.Enabled = !busy;
-            _filterButton.Enabled = !busy;
-            _searchTextBox.Enabled = !busy;
+            _isJobActionRunning = busy;
 
             foreach (Control control in _jobRowsPanel.Controls)
             {
@@ -556,36 +553,38 @@ namespace PrintOrder
 
         private async Task<PrintJob?> HandlePrintActionAsync(PrintJob job)
         {
-            var latestJob = await FetchJobAsync(job.Id);
-            if (latestJob == null)
-            {
-                _statusLabel.Text = "Job tidak ditemukan atau sudah dihapus.";
-                await LoadJobsAsync();
-                return null;
-            }
-
-            job = latestJob;
-            if (!string.Equals(job.Status, "ready", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(job.Status, "pending", StringComparison.OrdinalIgnoreCase))
-            {
-                _statusLabel.Text = $"Job sudah berubah status ({job.Status}).";
-                await LoadJobsAsync();
-                return null;
-            }
-
-            _statusLabel.Text = $"Mencetak {job.OriginalName}...";
-            SetBusy(true);
+            SetJobActionsBusy(true);
             PrintJob? updatedJob = null;
+
             try
             {
+                var latestJob = await FetchJobAsync(job.Id);
+                if (latestJob == null)
+                {
+                    _statusLabel.Text = "Job tidak ditemukan atau sudah dihapus.";
+                    await LoadJobsAsync();
+                    return null;
+                }
+
+                job = latestJob;
+                if (!string.Equals(job.Status, "ready", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(job.Status, "pending", StringComparison.OrdinalIgnoreCase))
+                {
+                    _statusLabel.Text = $"Job sudah berubah status ({job.Status}).";
+                    await LoadJobsAsync();
+                    return null;
+                }
+
+                _statusLabel.Text = $"Mencetak {job.OriginalName}...";
                 updatedJob = await _printJobAsync(job);
+
+                await LoadJobsAsync();
             }
             finally
             {
-                SetBusy(false);
+                SetJobActionsBusy(false);
             }
 
-            await LoadJobsAsync();
             if (updatedJob != null)
             {
                 ApplyJobUpdate(updatedJob);
@@ -617,34 +616,34 @@ namespace PrintOrder
 
         private async Task HandleRejectActionAsync(PrintJob job)
         {
-            var latestJob = await FetchJobAsync(job.Id);
-            if (latestJob == null)
-            {
-                _statusLabel.Text = "Job tidak ditemukan atau sudah dihapus.";
-                await LoadJobsAsync();
-                return;
-            }
-
-            job = latestJob;
-            if (!string.Equals(job.Status, "ready", StringComparison.OrdinalIgnoreCase))
-            {
-                _statusLabel.Text = $"Job sudah berubah status ({job.Status}).";
-                await LoadJobsAsync();
-                return;
-            }
-
-            _statusLabel.Text = $"Menolak {job.OriginalName}...";
-            SetBusy(true);
+            SetJobActionsBusy(true);
             try
             {
+                var latestJob = await FetchJobAsync(job.Id);
+                if (latestJob == null)
+                {
+                    _statusLabel.Text = "Job tidak ditemukan atau sudah dihapus.";
+                    await LoadJobsAsync();
+                    return;
+                }
+
+                job = latestJob;
+                if (!string.Equals(job.Status, "ready", StringComparison.OrdinalIgnoreCase))
+                {
+                    _statusLabel.Text = $"Job sudah berubah status ({job.Status}).";
+                    await LoadJobsAsync();
+                    return;
+                }
+
+                _statusLabel.Text = $"Menolak {job.OriginalName}...";
                 await _rejectJobAsync(job);
+
+                await LoadJobsAsync();
             }
             finally
             {
-                SetBusy(false);
+                SetJobActionsBusy(false);
             }
-
-            await LoadJobsAsync();
         }
 
         private async Task<PrintJob?> FetchJobAsync(string jobId)
@@ -824,6 +823,7 @@ namespace PrintOrder
                     row.DetailRequested += (_, _) => ShowJobDetail(job);
                     row.PrintRequested += async (_, _) => await HandlePrintActionAsync(job);
                     row.RejectRequested += async (_, _) => await HandleRejectActionAsync(job);
+                    row.SetActionsEnabled(!_isJobActionRunning);
                     _jobRowsPanel.Controls.Add(row);
                 }
 
