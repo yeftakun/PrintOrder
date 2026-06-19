@@ -27,6 +27,7 @@ namespace PrintOrder
         private const string InsufficientCreditCode = "INSUFFICIENT_CREDIT";
         private const string InsufficientCreditOperatorMessage = "Kredit toko tidak cukup. Tambahkan kredit atau aktifkan plan sebelum mencetak.";
         private static readonly HttpClient Http = CreateHttpClient();
+        private static readonly HttpClient DownloadHttp = CreateDownloadHttpClient();
         private static readonly JsonSerializerOptions CaseInsensitiveJsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true
@@ -109,6 +110,16 @@ namespace PrintOrder
                 && string.Equals(Code, InsufficientCreditCode, StringComparison.OrdinalIgnoreCase);
         }
 
+        private sealed class PdfPrintAttemptResult
+        {
+            public bool Success { get; init; }
+            public string Engine { get; init; } = string.Empty;
+            public bool EngineMissing { get; init; }
+            public bool TimedOut { get; init; }
+            public int? ExitCode { get; init; }
+            public string FailureMessage { get; init; } = string.Empty;
+        }
+
         public Form1()
         {
             InitializeComponent();
@@ -129,7 +140,19 @@ namespace PrintOrder
             };
             return new HttpClient(handler)
             {
-                Timeout = TimeSpan.FromSeconds(5)
+                Timeout = TimeSpan.FromSeconds(AppConfig.LoadTimeoutOptions().ApiTimeoutSeconds)
+            };
+        }
+
+        private static HttpClient CreateDownloadHttpClient()
+        {
+            var handler = new HttpClientHandler
+            {
+                UseProxy = false
+            };
+            return new HttpClient(handler)
+            {
+                Timeout = Timeout.InfiniteTimeSpan
             };
         }
 
@@ -874,6 +897,19 @@ namespace PrintOrder
 
         private async Task<HttpResponseMessage> SendAuthorizedAsync(HttpRequestMessage request)
         {
+            return await SendAuthorizedAsync(
+                request,
+                Http,
+                HttpCompletionOption.ResponseContentRead,
+                CancellationToken.None);
+        }
+
+        private async Task<HttpResponseMessage> SendAuthorizedAsync(
+            HttpRequestMessage request,
+            HttpClient httpClient,
+            HttpCompletionOption completionOption,
+            CancellationToken cancellationToken)
+        {
             if (string.IsNullOrWhiteSpace(_accessToken) && HasSavedAuthState)
             {
                 await TryRefreshAccessTokenAsync(updateStatusOnFailure: false);
@@ -882,7 +918,7 @@ namespace PrintOrder
             var retryRequest = await CloneRequestAsync(request);
 
             ApplyAuthorizationHeader(request);
-            var response = await Http.SendAsync(request);
+            var response = await httpClient.SendAsync(request, completionOption, cancellationToken);
 
             if (response.StatusCode != HttpStatusCode.Unauthorized || !HasSavedAuthState)
             {
@@ -899,7 +935,7 @@ namespace PrintOrder
 
             response.Dispose();
             ApplyAuthorizationHeader(retryRequest);
-            return await Http.SendAsync(retryRequest);
+            return await httpClient.SendAsync(retryRequest, completionOption, cancellationToken);
         }
 
         private void ApplyAuthorizationHeader(HttpRequestMessage request)
@@ -1369,8 +1405,10 @@ namespace PrintOrder
                 _activeJobTempPath = null;
                 await UpdateJobStatusAsync(job.Id, printed ? "done" : "failed");
             }
-            catch
+            catch (Exception ex)
             {
+                Trace.TraceError(
+                    $"Print job processing error. jobId={job.Id}, errorType={ex.GetType().Name}, message=\"{ex.Message}\"");
                 if (!string.IsNullOrWhiteSpace(job.Id))
                 {
                     await UpdateJobStatusAsync(job.Id, "failed");
@@ -1505,30 +1543,157 @@ namespace PrintOrder
 
         private async System.Threading.Tasks.Task<string?> DownloadJobFileAsync(string jobId, string originalName)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, $"{_serverBaseUrl}/api/jobs/{Uri.EscapeDataString(jobId)}/download");
-            using var response = await SendAuthorizedAsync(request);
-            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            var timeouts = AppConfig.LoadTimeoutOptions();
+            using var downloadCts = new CancellationTokenSource(TimeSpan.FromSeconds(timeouts.DownloadTimeoutSeconds));
+            var stopwatch = Stopwatch.StartNew();
+            string? filePath = null;
+
+            Trace.TraceInformation(
+                $"Job file download started. jobId={jobId}, timeoutSeconds={timeouts.DownloadTimeoutSeconds}");
+
+            try
             {
-                statusLabel.Text = "Sesi pairing habis. Pair akun ulang sebelum mengambil file job.";
+                using var request = new HttpRequestMessage(HttpMethod.Get, $"{_serverBaseUrl}/api/jobs/{Uri.EscapeDataString(jobId)}/download");
+                using var response = await SendAuthorizedAsync(
+                    request,
+                    DownloadHttp,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    downloadCts.Token);
+
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    statusLabel.Text = "Sesi pairing habis. Pair akun ulang sebelum mengambil file job.";
+                    Trace.TraceWarning(
+                        $"Job file download unauthorized. jobId={jobId}, elapsedMs={stopwatch.ElapsedMilliseconds}");
+                    return null;
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var responseBody = await response.Content.ReadAsStringAsync(downloadCts.Token);
+                    var apiError = TryExtractApiError(responseBody);
+                    statusLabel.Text = apiError ?? $"Gagal download file job ({(int)response.StatusCode}).";
+                    Trace.TraceWarning(
+                        $"Job file download failed. jobId={jobId}, httpStatus={(int)response.StatusCode}, elapsedMs={stopwatch.ElapsedMilliseconds}, reason=\"{statusLabel.Text}\"");
+                    return null;
+                }
+
+                var contentLength = response.Content.Headers.ContentLength;
+                filePath = Path.Combine(Path.GetTempPath(), BuildJobTempFileName(jobId, originalName));
+
+                await using (var stream = await response.Content.ReadAsStreamAsync(downloadCts.Token))
+                await using (var fileStream = new FileStream(
+                    filePath,
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.None,
+                    bufferSize: 81920,
+                    FileOptions.Asynchronous | FileOptions.SequentialScan))
+                {
+                    await stream.CopyToAsync(fileStream, downloadCts.Token);
+                    await fileStream.FlushAsync(downloadCts.Token);
+                }
+
+                var fileInfo = new FileInfo(filePath);
+                var fileSize = fileInfo.Exists ? fileInfo.Length : 0;
+                if (!fileInfo.Exists || fileSize <= 0)
+                {
+                    statusLabel.Text = "Download file job gagal: file temp kosong.";
+                    Trace.TraceWarning(
+                        $"Job file download validation failed. jobId={jobId}, sizeBytes={fileSize}, contentLengthBytes={FormatNullableLength(contentLength)}, elapsedMs={stopwatch.ElapsedMilliseconds}, tempPath=\"{filePath}\", reason=\"empty file\"");
+                    TryDeleteTempFile(filePath);
+                    return null;
+                }
+
+                if (contentLength.HasValue && fileSize != contentLength.Value)
+                {
+                    statusLabel.Text = "Download file job gagal: ukuran file tidak lengkap.";
+                    Trace.TraceWarning(
+                        $"Job file download validation failed. jobId={jobId}, sizeBytes={fileSize}, contentLengthBytes={contentLength.Value}, elapsedMs={stopwatch.ElapsedMilliseconds}, tempPath=\"{filePath}\", reason=\"content length mismatch\"");
+                    TryDeleteTempFile(filePath);
+                    return null;
+                }
+
+                Trace.TraceInformation(
+                    $"Job file download completed. jobId={jobId}, sizeBytes={fileSize}, contentLengthBytes={FormatNullableLength(contentLength)}, elapsedMs={stopwatch.ElapsedMilliseconds}, tempPath=\"{filePath}\"");
+                return filePath;
+            }
+            catch (OperationCanceledException) when (downloadCts.IsCancellationRequested)
+            {
+                statusLabel.Text = $"Download timeout setelah {timeouts.DownloadTimeoutSeconds} detik untuk job {jobId}.";
+                Trace.TraceWarning(
+                    $"Job file download timeout. jobId={jobId}, timeoutSeconds={timeouts.DownloadTimeoutSeconds}, elapsedMs={stopwatch.ElapsedMilliseconds}, tempPath=\"{filePath ?? "-"}\"");
+                if (!string.IsNullOrWhiteSpace(filePath))
+                {
+                    TryDeleteTempFile(filePath);
+                }
+
                 return null;
             }
-
-            if (!response.IsSuccessStatusCode)
+            catch (Exception ex)
             {
+                statusLabel.Text = "Download file job gagal. Periksa koneksi/server dan coba lagi.";
+                Trace.TraceError(
+                    $"Job file download error. jobId={jobId}, elapsedMs={stopwatch.ElapsedMilliseconds}, tempPath=\"{filePath ?? "-"}\", errorType={ex.GetType().Name}, message=\"{ex.Message}\"");
+                if (!string.IsNullOrWhiteSpace(filePath))
+                {
+                    TryDeleteTempFile(filePath);
+                }
+
                 return null;
             }
+            finally
+            {
+                stopwatch.Stop();
+            }
+        }
 
-            var safeName = Path.GetFileName(originalName);
+        private static string BuildJobTempFileName(string jobId, string originalName)
+        {
+            var safeJobId = SanitizeFileNameSegment(jobId);
+            if (string.IsNullOrWhiteSpace(safeJobId))
+            {
+                safeJobId = "job";
+            }
+
+            var safeName = SanitizeFileNameSegment(Path.GetFileName(originalName));
             if (string.IsNullOrWhiteSpace(safeName))
             {
-                safeName = jobId;
+                safeName = "file.bin";
             }
 
-            var filePath = Path.Combine(Path.GetTempPath(), $"{jobId}_{safeName}");
-            await using var stream = await response.Content.ReadAsStreamAsync();
-            await using var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
-            await stream.CopyToAsync(fileStream);
-            return filePath;
+            if (safeName.Length > 120)
+            {
+                var extension = Path.GetExtension(safeName);
+                var nameWithoutExtension = Path.GetFileNameWithoutExtension(safeName);
+                var maxNameLength = Math.Max(1, 120 - extension.Length);
+                safeName = nameWithoutExtension[..Math.Min(nameWithoutExtension.Length, maxNameLength)] + extension;
+            }
+
+            return $"printorder-{safeJobId}-{Guid.NewGuid():N}-{safeName}";
+        }
+
+        private static string SanitizeFileNameSegment(string? value)
+        {
+            var candidate = (value ?? string.Empty).Trim();
+            if (candidate.Length == 0)
+            {
+                return string.Empty;
+            }
+
+            var invalidChars = Path.GetInvalidFileNameChars();
+            var builder = new StringBuilder(candidate.Length);
+            foreach (var ch in candidate)
+            {
+                builder.Append(invalidChars.Contains(ch) ? '_' : ch);
+            }
+
+            return builder.ToString();
+        }
+
+        private static string FormatNullableLength(long? value)
+        {
+            return value.HasValue ? value.Value.ToString() : "-";
         }
 
         private async System.Threading.Tasks.Task<bool> PrintNonImageAsync(string filePath, PrintConfig? printConfig)
@@ -1542,28 +1707,67 @@ namespace PrintOrder
                     return false;
                 }
 
-                if (await TryPrintPdfWithSumatraAsync(filePath, pageRange))
+                var sumatraResult = await TryPrintPdfWithSumatraAsync(filePath, pageRange);
+                if (sumatraResult.Success)
                 {
                     return true;
                 }
 
                 if (!string.IsNullOrWhiteSpace(pageRange))
                 {
-                    statusLabel.Text = "Gagal mencetak PDF sesuai rentang halaman. Install SumatraPDF agar rentang halaman didukung.";
+                    if (sumatraResult.EngineMissing)
+                    {
+                        statusLabel.Text = "Gagal mencetak PDF sesuai rentang halaman. Install SumatraPDF agar rentang halaman didukung.";
+                    }
+                    else if (sumatraResult.TimedOut)
+                    {
+                        statusLabel.Text = "Proses print PDF timeout di SumatraPDF. Naikkan sumatra_print_timeout_seconds di printorder.ini jika file besar.";
+                    }
+                    else
+                    {
+                        statusLabel.Text = sumatraResult.FailureMessage.Length > 0
+                            ? sumatraResult.FailureMessage
+                            : "Gagal mencetak PDF sesuai rentang halaman lewat SumatraPDF.";
+                    }
+
                     return false;
                 }
 
-                if (await TryPrintPdfWithEdgeAsync(filePath, headless: true))
+                var edgeHeadlessResult = await TryPrintPdfWithEdgeAsync(filePath, headless: true);
+                if (edgeHeadlessResult.Success)
                 {
                     return true;
                 }
 
-                if (await TryPrintPdfWithEdgeAsync(filePath, headless: false))
+                var edgeWindowResult = await TryPrintPdfWithEdgeAsync(filePath, headless: false);
+                if (edgeWindowResult.Success)
                 {
                     return true;
                 }
 
-                statusLabel.Text = "Gagal mencetak PDF. Install SumatraPDF.";
+                if (sumatraResult.TimedOut || edgeHeadlessResult.TimedOut || edgeWindowResult.TimedOut)
+                {
+                    statusLabel.Text = sumatraResult.EngineMissing
+                        ? "Proses print PDF timeout lewat Edge. Install SumatraPDF atau naikkan timeout proses print di printorder.ini."
+                        : "Proses print PDF timeout. Naikkan timeout proses print di printorder.ini jika file besar.";
+                }
+                else if (sumatraResult.EngineMissing)
+                {
+                    statusLabel.Text = "Gagal mencetak PDF. Install SumatraPDF.";
+                }
+                else if (edgeWindowResult.FailureMessage.Length > 0)
+                {
+                    statusLabel.Text = edgeWindowResult.FailureMessage;
+                }
+                else if (edgeHeadlessResult.FailureMessage.Length > 0)
+                {
+                    statusLabel.Text = edgeHeadlessResult.FailureMessage;
+                }
+                else
+                {
+                    statusLabel.Text = "Gagal mencetak PDF. Install SumatraPDF.";
+                }
+
                 return false;
             }
 
@@ -1594,28 +1798,51 @@ namespace PrintOrder
             return true;
         }
 
-        private async System.Threading.Tasks.Task<bool> TryPrintPdfWithEdgeAsync(string filePath)
+        private async System.Threading.Tasks.Task<PdfPrintAttemptResult> TryPrintPdfWithEdgeAsync(string filePath)
         {
             return await TryPrintPdfWithEdgeAsync(filePath, headless: true);
         }
 
-        private async System.Threading.Tasks.Task<bool> TryPrintPdfWithEdgeAsync(string filePath, bool headless)
+        private async System.Threading.Tasks.Task<PdfPrintAttemptResult> TryPrintPdfWithEdgeAsync(string filePath, bool headless)
         {
+            var engineName = headless ? "EdgeHeadless" : "EdgeWindow";
+            var jobId = string.IsNullOrWhiteSpace(_activeJobId) ? "-" : _activeJobId;
+            var fileSize = GetFileSizeForLog(filePath);
+            var timeouts = AppConfig.LoadTimeoutOptions();
+            var timeoutSeconds = headless
+                ? timeouts.EdgeHeadlessPrintTimeoutSeconds
+                : timeouts.EdgeWindowPrintTimeoutSeconds;
+            var timeoutMs = timeoutSeconds * 1000;
+            var stopwatch = Stopwatch.StartNew();
+
             var printerName = GetSelectedPrinterName();
             if (string.IsNullOrWhiteSpace(printerName))
             {
-                return false;
+                Trace.TraceWarning(
+                    $"PDF print failed. jobId={jobId}, engine={engineName}, fileSizeBytes={fileSize}, tempPath=\"{filePath}\", reason=\"printer not selected\"");
+                return new PdfPrintAttemptResult
+                {
+                    Engine = engineName,
+                    FailureMessage = "Printer tidak ditemukan."
+                };
             }
 
             var edgePath = ResolveEdgePath();
             if (string.IsNullOrWhiteSpace(edgePath))
             {
-                return false;
+                Trace.TraceWarning(
+                    $"PDF print engine missing. jobId={jobId}, engine={engineName}, fileSizeBytes={fileSize}, tempPath=\"{filePath}\", reason=\"Edge executable not found\"");
+                return new PdfPrintAttemptResult
+                {
+                    Engine = engineName,
+                    EngineMissing = true,
+                    FailureMessage = "Microsoft Edge tidak ditemukan."
+                };
             }
 
+            var userDataDir = Path.Combine(Path.GetTempPath(), $"printorder-edge-{Guid.NewGuid():N}");
             try
             {
-                var userDataDir = Path.Combine(Path.GetTempPath(), $"printorder-edge-{Guid.NewGuid():N}");
                 Directory.CreateDirectory(userDataDir);
                 var safePrinter = printerName.Replace("\"", "\\\"");
                 var fileUrl = new Uri(filePath).AbsoluteUri;
@@ -1633,39 +1860,72 @@ namespace PrintOrder
                     UseShellExecute = false
                 };
 
-                var p = Process.Start(psi);
+                Trace.TraceInformation(
+                    $"PDF print started. jobId={jobId}, engine={engineName}, fileSizeBytes={fileSize}, timeoutSeconds={timeoutSeconds}, tempPath=\"{filePath}\"");
+
+                using var p = Process.Start(psi);
                 if (p == null)
                 {
-                    return false;
+                    Trace.TraceWarning(
+                        $"PDF print failed. jobId={jobId}, engine={engineName}, fileSizeBytes={fileSize}, tempPath=\"{filePath}\", reason=\"process did not start\"");
+                    return new PdfPrintAttemptResult
+                    {
+                        Engine = engineName,
+                        FailureMessage = "Gagal menjalankan Microsoft Edge untuk print PDF."
+                    };
                 }
 
-                var timeoutMs = headless ? 20000 : 8000;
                 var exited = p.WaitForExit(timeoutMs);
                 if (!exited)
                 {
-                    try
+                    TryKillProcessTree(p);
+                    Trace.TraceWarning(
+                        $"PDF print timeout. jobId={jobId}, engine={engineName}, fileSizeBytes={fileSize}, timeoutSeconds={timeoutSeconds}, elapsedMs={stopwatch.ElapsedMilliseconds}, tempPath=\"{filePath}\"");
+                    return new PdfPrintAttemptResult
                     {
-                        p.Kill(true);
-                    }
-                    catch
-                    {
-                        // Abaikan kegagalan kill
-                    }
-                    return false;
+                        Engine = engineName,
+                        TimedOut = true,
+                        FailureMessage = $"Proses print PDF timeout lewat {engineName}."
+                    };
                 }
 
-                if (p.ExitCode != 0 && headless)
+                var exitCode = p.ExitCode;
+                if (exitCode != 0)
                 {
-                    return false;
+                    Trace.TraceWarning(
+                        $"PDF print failed. jobId={jobId}, engine={engineName}, fileSizeBytes={fileSize}, exitCode={exitCode}, elapsedMs={stopwatch.ElapsedMilliseconds}, tempPath=\"{filePath}\", reason=\"non-zero exit code\"");
+                    return new PdfPrintAttemptResult
+                    {
+                        Engine = engineName,
+                        ExitCode = exitCode,
+                        FailureMessage = $"Gagal mencetak PDF lewat {engineName} (exit code {exitCode})."
+                    };
                 }
 
                 await System.Threading.Tasks.Task.CompletedTask;
-                TryDeleteTempDirectory(userDataDir);
-                return true;
+                Trace.TraceInformation(
+                    $"PDF print completed. jobId={jobId}, engine={engineName}, fileSizeBytes={fileSize}, exitCode={exitCode}, elapsedMs={stopwatch.ElapsedMilliseconds}, tempPath=\"{filePath}\"");
+                return new PdfPrintAttemptResult
+                {
+                    Success = true,
+                    Engine = engineName,
+                    ExitCode = exitCode
+                };
             }
-            catch
+            catch (Exception ex)
             {
-                return false;
+                Trace.TraceError(
+                    $"PDF print error. jobId={jobId}, engine={engineName}, fileSizeBytes={fileSize}, elapsedMs={stopwatch.ElapsedMilliseconds}, tempPath=\"{filePath}\", errorType={ex.GetType().Name}, message=\"{ex.Message}\"");
+                return new PdfPrintAttemptResult
+                {
+                    Engine = engineName,
+                    FailureMessage = $"Gagal mencetak PDF lewat {engineName}."
+                };
+            }
+            finally
+            {
+                stopwatch.Stop();
+                TryDeleteTempDirectory(userDataDir);
             }
         }
 
@@ -1719,18 +1979,39 @@ namespace PrintOrder
             }
         }
 
-        private async System.Threading.Tasks.Task<bool> TryPrintPdfWithSumatraAsync(string filePath, string? pageRange)
+        private async System.Threading.Tasks.Task<PdfPrintAttemptResult> TryPrintPdfWithSumatraAsync(string filePath, string? pageRange)
         {
+            const string engineName = "SumatraPDF";
+            var jobId = string.IsNullOrWhiteSpace(_activeJobId) ? "-" : _activeJobId;
+            var fileSize = GetFileSizeForLog(filePath);
+            var timeouts = AppConfig.LoadTimeoutOptions();
+            var timeoutSeconds = timeouts.SumatraPrintTimeoutSeconds;
+            var timeoutMs = timeoutSeconds * 1000;
+            var stopwatch = Stopwatch.StartNew();
+
             var printerName = GetSelectedPrinterName();
             if (string.IsNullOrWhiteSpace(printerName))
             {
-                return false;
+                Trace.TraceWarning(
+                    $"PDF print failed. jobId={jobId}, engine={engineName}, fileSizeBytes={fileSize}, tempPath=\"{filePath}\", reason=\"printer not selected\"");
+                return new PdfPrintAttemptResult
+                {
+                    Engine = engineName,
+                    FailureMessage = "Printer tidak ditemukan."
+                };
             }
 
             var sumatraPath = SumatraPdfSupport.ResolveExecutablePath();
             if (string.IsNullOrWhiteSpace(sumatraPath))
             {
-                return false;
+                Trace.TraceWarning(
+                    $"PDF print engine missing. jobId={jobId}, engine={engineName}, fileSizeBytes={fileSize}, tempPath=\"{filePath}\", reason=\"SumatraPDF executable not found\"");
+                return new PdfPrintAttemptResult
+                {
+                    Engine = engineName,
+                    EngineMissing = true,
+                    FailureMessage = "SumatraPDF belum ditemukan."
+                };
             }
 
             try
@@ -1748,18 +2029,71 @@ namespace PrintOrder
                     UseShellExecute = false
                 };
 
-                var p = Process.Start(psi);
-                if (p != null)
+                Trace.TraceInformation(
+                    $"PDF print started. jobId={jobId}, engine={engineName}, fileSizeBytes={fileSize}, timeoutSeconds={timeoutSeconds}, tempPath=\"{filePath}\"");
+
+                using var p = Process.Start(psi);
+                if (p == null)
                 {
-                    p.WaitForExit(15000);
+                    Trace.TraceWarning(
+                        $"PDF print failed. jobId={jobId}, engine={engineName}, fileSizeBytes={fileSize}, tempPath=\"{filePath}\", reason=\"process did not start\"");
+                    return new PdfPrintAttemptResult
+                    {
+                        Engine = engineName,
+                        FailureMessage = "Gagal menjalankan SumatraPDF untuk print PDF."
+                    };
+                }
+
+                var exited = p.WaitForExit(timeoutMs);
+                if (!exited)
+                {
+                    TryKillProcessTree(p);
+                    Trace.TraceWarning(
+                        $"PDF print timeout. jobId={jobId}, engine={engineName}, fileSizeBytes={fileSize}, timeoutSeconds={timeoutSeconds}, elapsedMs={stopwatch.ElapsedMilliseconds}, tempPath=\"{filePath}\"");
+                    return new PdfPrintAttemptResult
+                    {
+                        Engine = engineName,
+                        TimedOut = true,
+                        FailureMessage = "Proses print PDF timeout di SumatraPDF."
+                    };
+                }
+
+                var exitCode = p.ExitCode;
+                if (exitCode != 0)
+                {
+                    Trace.TraceWarning(
+                        $"PDF print failed. jobId={jobId}, engine={engineName}, fileSizeBytes={fileSize}, exitCode={exitCode}, elapsedMs={stopwatch.ElapsedMilliseconds}, tempPath=\"{filePath}\", reason=\"non-zero exit code\"");
+                    return new PdfPrintAttemptResult
+                    {
+                        Engine = engineName,
+                        ExitCode = exitCode,
+                        FailureMessage = $"Gagal mencetak PDF lewat SumatraPDF (exit code {exitCode})."
+                    };
                 }
 
                 await System.Threading.Tasks.Task.CompletedTask;
-                return true;
+                Trace.TraceInformation(
+                    $"PDF print completed. jobId={jobId}, engine={engineName}, fileSizeBytes={fileSize}, exitCode={exitCode}, elapsedMs={stopwatch.ElapsedMilliseconds}, tempPath=\"{filePath}\"");
+                return new PdfPrintAttemptResult
+                {
+                    Success = true,
+                    Engine = engineName,
+                    ExitCode = exitCode
+                };
             }
-            catch
+            catch (Exception ex)
             {
-                return false;
+                Trace.TraceError(
+                    $"PDF print error. jobId={jobId}, engine={engineName}, fileSizeBytes={fileSize}, elapsedMs={stopwatch.ElapsedMilliseconds}, tempPath=\"{filePath}\", errorType={ex.GetType().Name}, message=\"{ex.Message}\"");
+                return new PdfPrintAttemptResult
+                {
+                    Engine = engineName,
+                    FailureMessage = "Gagal mencetak PDF lewat SumatraPDF."
+                };
+            }
+            finally
+            {
+                stopwatch.Stop();
             }
         }
 
@@ -1823,6 +2157,34 @@ namespace PrintOrder
             }
 
             return $"{startPage}-{endPage}";
+        }
+
+        private static long GetFileSizeForLog(string filePath)
+        {
+            try
+            {
+                var fileInfo = new FileInfo(filePath);
+                return fileInfo.Exists ? fileInfo.Length : 0;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        private static void TryKillProcessTree(Process process)
+        {
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(true);
+                }
+            }
+            catch
+            {
+                // Abaikan kegagalan kill; caller tetap melaporkan timeout.
+            }
         }
 
         private string? ResolveEdgePath()

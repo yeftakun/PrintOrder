@@ -313,9 +313,10 @@ namespace PrintOrder
 
             try
             {
+                var timeoutSeconds = AppConfig.LoadTimeoutOptions().ApiTimeoutSeconds;
                 using var client = new HttpClient
                 {
-                    Timeout = TimeSpan.FromSeconds(5)
+                    Timeout = TimeSpan.FromSeconds(timeoutSeconds)
                 };
 
                 using var response = await client.GetAsync(inputValue, HttpCompletionOption.ResponseHeadersRead);

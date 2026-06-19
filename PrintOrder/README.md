@@ -31,7 +31,16 @@ Set server URL in this file:
 ```ini
 [server]
 base_url=https://printorder.web.id
+
+[timeouts]
+api_timeout_seconds=15
+download_timeout_seconds=300
+sumatra_print_timeout_seconds=300
+edge_headless_print_timeout_seconds=120
+edge_window_print_timeout_seconds=60
 ```
+
+`download_timeout_seconds` controls job file download time and is intentionally longer than normal API calls. Increase `sumatra_print_timeout_seconds` or Edge print timeouts if very large PDFs need more time to finish the print process.
 
 ## What it does
 
@@ -74,4 +83,5 @@ base_url=https://printorder.web.id
 ## Troubleshooting
 
 - If PDF printing fails, install SumatraPDF and try again.
+- If large PDFs fail during download or printing, increase the related `[timeouts]` values in `%LocalAppData%\PrintOrder\printorder.ini`.
 - If the client does not appear online, make sure the server is running and `base_url` in `printorder.ini` is correct.

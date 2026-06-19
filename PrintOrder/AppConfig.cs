@@ -93,8 +93,87 @@ namespace PrintOrder
             Directory.CreateDirectory(CurrentUserStorageDirectoryPath);
 
             var configPath = GetConfigFilePath();
-            var content = BuildConfigContent(normalized, notificationOptions);
+            var content = BuildConfigContent(normalized, notificationOptions, LoadTimeoutOptions());
             File.WriteAllText(configPath, content, new UTF8Encoding(false));
+        }
+
+        public static AppTimeoutOptions LoadTimeoutOptions()
+        {
+            TryMigrateLegacyFiles();
+
+            var options = new AppTimeoutOptions();
+            var configPath = GetConfigFilePath();
+
+            try
+            {
+                if (!File.Exists(configPath))
+                {
+                    return options;
+                }
+
+                var inTimeoutSection = false;
+                foreach (var rawLine in File.ReadAllLines(configPath))
+                {
+                    var line = rawLine.Trim();
+                    if (line.Length == 0 || line.StartsWith(";") || line.StartsWith("#"))
+                    {
+                        continue;
+                    }
+
+                    if (line.StartsWith("[") && line.EndsWith("]"))
+                    {
+                        var section = line[1..^1].Trim();
+                        inTimeoutSection = string.Equals(section, "timeouts", StringComparison.OrdinalIgnoreCase);
+                        continue;
+                    }
+
+                    if (!inTimeoutSection)
+                    {
+                        continue;
+                    }
+
+                    var separatorIndex = line.IndexOf('=');
+                    if (separatorIndex <= 0)
+                    {
+                        continue;
+                    }
+
+                    var key = line[..separatorIndex].Trim();
+                    var value = line[(separatorIndex + 1)..].Trim().Trim('"');
+
+                    if (!TryParseTimeoutSeconds(value, out var seconds))
+                    {
+                        continue;
+                    }
+
+                    if (string.Equals(key, "api_timeout_seconds", StringComparison.OrdinalIgnoreCase))
+                    {
+                        options.ApiTimeoutSeconds = seconds;
+                    }
+                    else if (string.Equals(key, "download_timeout_seconds", StringComparison.OrdinalIgnoreCase))
+                    {
+                        options.DownloadTimeoutSeconds = seconds;
+                    }
+                    else if (string.Equals(key, "sumatra_print_timeout_seconds", StringComparison.OrdinalIgnoreCase))
+                    {
+                        options.SumatraPrintTimeoutSeconds = seconds;
+                    }
+                    else if (string.Equals(key, "edge_headless_print_timeout_seconds", StringComparison.OrdinalIgnoreCase))
+                    {
+                        options.EdgeHeadlessPrintTimeoutSeconds = seconds;
+                    }
+                    else if (string.Equals(key, "edge_window_print_timeout_seconds", StringComparison.OrdinalIgnoreCase))
+                    {
+                        options.EdgeWindowPrintTimeoutSeconds = seconds;
+                    }
+                }
+            }
+            catch
+            {
+                // Pakai default jika gagal membaca konfigurasi.
+            }
+
+            return options;
         }
 
         public static NotificationOptions LoadNotificationOptions()
@@ -341,14 +420,18 @@ namespace PrintOrder
 
         private static void WriteDefaultConfig(string configPath)
         {
-            var content = BuildConfigContent(DefaultServerBaseUrl, new NotificationOptions());
+            var content = BuildConfigContent(DefaultServerBaseUrl, new NotificationOptions(), new AppTimeoutOptions());
 
             File.WriteAllText(configPath, content, new UTF8Encoding(false));
         }
 
-        private static string BuildConfigContent(string baseUrl, NotificationOptions notificationOptions)
+        private static string BuildConfigContent(
+            string baseUrl,
+            NotificationOptions notificationOptions,
+            AppTimeoutOptions timeoutOptions)
         {
             notificationOptions ??= new NotificationOptions();
+            timeoutOptions ??= new AppTimeoutOptions();
 
             return string.Join(Environment.NewLine, new[]
             {
@@ -360,6 +443,13 @@ namespace PrintOrder
                 "[notification]",
                 $"sound_enabled={ToConfigBoolean(notificationOptions.SoundEnabled)}",
                 $"notification_enabled={ToConfigBoolean(notificationOptions.DesktopEnabled)}",
+                string.Empty,
+                "[timeouts]",
+                $"api_timeout_seconds={timeoutOptions.ApiTimeoutSeconds}",
+                $"download_timeout_seconds={timeoutOptions.DownloadTimeoutSeconds}",
+                $"sumatra_print_timeout_seconds={timeoutOptions.SumatraPrintTimeoutSeconds}",
+                $"edge_headless_print_timeout_seconds={timeoutOptions.EdgeHeadlessPrintTimeoutSeconds}",
+                $"edge_window_print_timeout_seconds={timeoutOptions.EdgeWindowPrintTimeoutSeconds}",
                 string.Empty
             });
         }
@@ -388,6 +478,21 @@ namespace PrintOrder
             }
 
             result = false;
+            return false;
+        }
+
+        private static bool TryParseTimeoutSeconds(string value, out int seconds)
+        {
+            const int maxTimeoutSeconds = 86400;
+
+            if (int.TryParse((value ?? string.Empty).Trim(), out seconds)
+                && seconds >= 1
+                && seconds <= maxTimeoutSeconds)
+            {
+                return true;
+            }
+
+            seconds = 0;
             return false;
         }
 
@@ -580,5 +685,14 @@ namespace PrintOrder
                 return string.Equals(leftPath, rightPath, StringComparison.OrdinalIgnoreCase);
             }
         }
+    }
+
+    internal sealed class AppTimeoutOptions
+    {
+        public int ApiTimeoutSeconds { get; set; } = 15;
+        public int DownloadTimeoutSeconds { get; set; } = 300;
+        public int SumatraPrintTimeoutSeconds { get; set; } = 300;
+        public int EdgeHeadlessPrintTimeoutSeconds { get; set; } = 120;
+        public int EdgeWindowPrintTimeoutSeconds { get; set; } = 60;
     }
 }
