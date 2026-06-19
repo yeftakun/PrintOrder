@@ -1363,12 +1363,7 @@ namespace PrintOrder
                     return null;
                 }
 
-                var printStartResult = await UpdateJobStatusAsync(job.Id, "printing");
-                if (!printStartResult.IsSuccess)
-                {
-                    return HandleJobStartDenied(job, printStartResult);
-                }
-
+                SetClientJobStatus(job.Id, "downloading", $"Mengunduh file job {job.Id}...");
                 var downloadPath = await DownloadJobFileAsync(job.Id, job.OriginalName);
                 if (string.IsNullOrWhiteSpace(downloadPath))
                 {
@@ -1379,6 +1374,16 @@ namespace PrintOrder
                 }
 
                 _activeJobTempPath = downloadPath;
+
+                var printStartResult = await UpdateJobStatusAsync(job.Id, "printing");
+                if (!printStartResult.IsSuccess)
+                {
+                    TryDeleteTempFile(downloadPath);
+                    _activeJobTempPath = null;
+                    return HandleJobStartDenied(job, printStartResult);
+                }
+
+                SetClientJobStatus(job.Id, "printing", $"Mencetak job {job.Id}...");
 
                 // Reset image cache
                 _imageToPrint?.Dispose();
@@ -1431,6 +1436,12 @@ namespace PrintOrder
             }
 
             return null;
+        }
+
+        private void SetClientJobStatus(string jobId, string localStatus, string message)
+        {
+            statusLabel.Text = message;
+            _jobListForm?.SetLocalJobStatus(jobId, localStatus, message);
         }
 
         private PrintJob? HandleJobStartDenied(PrintJob job, JobStatusUpdateResult result)

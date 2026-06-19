@@ -529,8 +529,14 @@ namespace PrintOrder
             return footer;
         }
 
-        private async Task LoadJobsAsync()
+        private async Task LoadJobsAsync(bool force = false)
         {
+            if (_isJobActionRunning && !force)
+            {
+                _pendingRefresh = true;
+                return;
+            }
+
             if (_isLoading)
             {
                 _pendingRefresh = true;
@@ -600,7 +606,7 @@ namespace PrintOrder
             {
                 _isLoading = false;
 
-                if (_pendingRefresh)
+                if (_pendingRefresh && !_isJobActionRunning)
                 {
                     _pendingRefresh = false;
                     _ = LoadJobsAsync();
@@ -634,6 +640,12 @@ namespace PrintOrder
             }
 
             UpdateBulkActionControls();
+
+            if (!busy && _pendingRefresh && !_isLoading)
+            {
+                _pendingRefresh = false;
+                _ = LoadJobsAsync();
+            }
         }
 
         private void ShowFilterDialog()
@@ -800,10 +812,11 @@ namespace PrintOrder
                     return null;
                 }
 
-                _statusLabel.Text = $"Mencetak {job.OriginalName}...";
+                SetLocalJobStatus(job.Id, "downloading", $"Mengunduh {job.OriginalName}...");
+                job.Status = "downloading";
                 updatedJob = await _printJobAsync(job);
 
-                await LoadJobsAsync();
+                await LoadJobsAsync(force: true);
             }
             finally
             {
@@ -837,6 +850,31 @@ namespace PrintOrder
 
             UpdateMetrics(_allJobs);
             RenderFilteredJobs();
+        }
+
+        public void SetLocalJobStatus(string jobId, string status, string message)
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() => SetLocalJobStatus(jobId, status, message)));
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(jobId))
+            {
+                _statusLabel.Text = message;
+                return;
+            }
+
+            var index = _allJobs.FindIndex(job => string.Equals(job.Id, jobId, StringComparison.OrdinalIgnoreCase));
+            if (index >= 0)
+            {
+                _allJobs[index].Status = status;
+                UpdateMetrics(_allJobs);
+                RenderFilteredJobs();
+            }
+
+            _statusLabel.Text = message;
         }
 
         private async Task HandleRejectActionAsync(PrintJob job)
@@ -914,7 +952,11 @@ namespace PrintOrder
                         continue;
                     }
 
-                    _statusLabel.Text = $"Mencetak {i + 1} dari {jobsToPrint.Count}: {latestJob.OriginalName}...";
+                    SetLocalJobStatus(
+                        latestJob.Id,
+                        "downloading",
+                        $"Mengunduh {i + 1} dari {jobsToPrint.Count}: {latestJob.OriginalName}...");
+                    latestJob.Status = "downloading";
                     try
                     {
                         await _printJobAsync(latestJob);
@@ -927,7 +969,7 @@ namespace PrintOrder
                 }
 
                 ClearSelection();
-                await LoadJobsAsync();
+                await LoadJobsAsync(force: true);
                 _statusLabel.Text = $"Bulk cetak selesai: {succeeded} berhasil, {skipped} dilewati, {failed} gagal.";
             }
             finally
@@ -2462,6 +2504,7 @@ namespace PrintOrder
             AddOption(_statusCombo, "Semua status", JobFilterState.All);
             AddOption(_statusCombo, "Siap", "ready");
             AddOption(_statusCombo, "Tertunda", "pending");
+            AddOption(_statusCombo, "Mengunduh", "downloading");
             AddOption(_statusCombo, "Gagal", "failed");
             AddOption(_statusCombo, "Mencetak", "printing");
             AddOption(_statusCombo, "Berhasil", "done");
@@ -3562,6 +3605,7 @@ namespace PrintOrder
             {
                 "ready" => "Siap",
                 "pending" => "Tertunda",
+                "downloading" => "Mengunduh",
                 "failed" => "Gagal",
                 "printing" => "Mencetak",
                 "done" => "Berhasil",
@@ -3595,6 +3639,11 @@ namespace PrintOrder
             if (IsStatus(status, "printing"))
             {
                 return new JobStatusStyle("Mencetak", Info, Color.FromArgb(236, 246, 255), Color.FromArgb(174, 211, 248));
+            }
+
+            if (IsStatus(status, "downloading"))
+            {
+                return new JobStatusStyle("Mengunduh", Info, Color.FromArgb(236, 246, 255), Color.FromArgb(174, 211, 248));
             }
 
             if (IsStatus(status, "done"))

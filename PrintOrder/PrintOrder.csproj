@@ -6,10 +6,10 @@
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>1.4.1</Version>
-    <FileVersion>1.4.1.0</FileVersion>
-    <AssemblyVersion>1.4.1.0</AssemblyVersion>
-    <InformationalVersion>1.4.1</InformationalVersion>
+    <Version>1.4.2</Version>
+    <FileVersion>1.4.2.0</FileVersion>
+    <AssemblyVersion>1.4.2.0</AssemblyVersion>
+    <InformationalVersion>1.4.2</InformationalVersion>
     <Product>PrintOrder Client</Product>
     <AssemblyTitle>PrintOrder Client</AssemblyTitle>
     <Description>Desktop client untuk menerima dan mencetak tugas dari server PrintOrder.</Description>
