@@ -1,73 +1,105 @@
-# PrintOrder
+# PrintOrder Client
 
-PrintOrder adalah aplikasi desktop Windows untuk menerima dan mencetak tugas cetak dari server PrintOrder melalui printer lokal.
+PrintOrder Client adalah aplikasi desktop Windows yang digunakan oleh mitra percetakan untuk menerima dan memproses tugas cetak dari sistem PrintOrder.
+
+Aplikasi ini terhubung dengan server PrintOrder, menerima tugas cetak dari pelanggan, lalu membantu pihak percetakan mengelola antrean dan mencetak dokumen melalui printer lokal yang tersedia pada komputer pengguna.
+
+## Tentang PrintOrder
+
+PrintOrder adalah platform layanan cetak dokumen yang membantu pelanggan mengirim dokumen ke percetakan secara lebih terstruktur. Pelanggan dapat membuka halaman toko, mengunggah dokumen, mengatur spesifikasi cetak, dan mengirim tugas cetak tanpa perlu mengirim file melalui WhatsApp, flashdisk, atau media lainnya.
+
+PrintOrder Client merupakan bagian dari sistem tersebut yang berjalan di sisi percetakan. Aplikasi ini digunakan untuk menerima, memantau, dan memproses tugas cetak yang masuk dari pelanggan.
+
+## Peran Aplikasi
+
+PrintOrder Client berfungsi sebagai penghubung antara server PrintOrder dan printer lokal di tempat percetakan.
+
+Secara umum, aplikasi ini digunakan untuk:
+
+* Menghubungkan komputer percetakan dengan akun mitra PrintOrder.
+* Mendaftarkan perangkat client ke server.
+* Menampilkan printer yang tersedia pada komputer.
+* Menerima tugas cetak dari pelanggan.
+* Menampilkan daftar tugas cetak yang masuk.
+* Memproses, menolak, atau memperbarui status tugas cetak.
+* Menjaga status client agar server mengetahui apakah percetakan sedang siap menerima tugas cetak.
+* Menampilkan notifikasi ketika ada tugas cetak baru.
+* Tetap berjalan di latar belakang melalui system tray.
 
 ## Fitur Utama
 
-- Pair akun client ke server PrintOrder.
-- Pilih printer aktif dari daftar printer Windows.
-- Terima tugas cetak secara realtime.
-- Cetak, retry, atau tolak tugas cetak.
-- Berjalan di system tray setelah dashboard ditutup.
-- Pengaturan Base URL, notifikasi, auto start Windows, dan status SumatraPDF.
+### Pairing Akun Mitra
 
-## Kebutuhan
+Aplikasi dapat dihubungkan dengan akun mitra PrintOrder. Setelah pairing berhasil, client desktop akan dikenali sebagai perangkat milik toko percetakan terkait.
 
-- Windows 10/11.
-- Printer lokal sudah terpasang.
-- SumatraPDF direkomendasikan, dan diperlukan untuk cetak PDF.
+### Daftar Tugas Cetak
 
-## Instalasi
+Aplikasi menampilkan daftar tugas cetak yang dikirim pelanggan. Pihak percetakan dapat melihat informasi dokumen dan spesifikasi cetak sebelum memprosesnya.
 
-Gunakan installer release:
+### Pemrosesan Cetak
 
-```text
-PrintOrder-Setup-1.3.1.exe
-```
+Tugas cetak yang masuk dapat diproses melalui printer lokal yang tersedia pada komputer. Status tugas cetak akan diperbarui agar pelanggan dan sistem mengetahui perkembangan proses cetak.
 
-Setelah instalasi:
+### Notifikasi
 
-1. Buka PrintOrder.
-2. Masuk ke `Pengaturan` dan pastikan `Base URL` sesuai alamat server.
-3. Klik `Pair Akun`.
-4. Pilih printer aktif.
-5. Buka `Daftar Tugas Cetak` untuk memantau dan memproses job.
+Aplikasi mendukung notifikasi ketika ada tugas cetak baru, sehingga pihak percetakan dapat segera mengetahui adanya pekerjaan yang masuk.
 
-## Lokasi Data
+### Pengaturan Client
 
-- Konfigurasi: `%LocalAppData%\PrintOrder\printorder.ini`
-- Sesi pairing: `%LocalAppData%\PrintOrder\printorder.auth.json`
-- Client ID: `%ProgramData%\PrintOrder\printorder.client-id`
+Aplikasi menyediakan pengaturan dasar seperti alamat server, informasi client, opsi notifikasi, auto-start Windows, dan status pendukung cetak.
 
-## Build Release
+### System Tray
 
-Publish self-contained agar pengguna tidak perlu install .NET runtime:
+Aplikasi tetap dapat berjalan di latar belakang ketika jendela utama ditutup, sehingga client tetap siap menerima tugas cetak selama aplikasi masih aktif.
 
-```powershell
-dotnet publish .\PrintOrder\PrintOrder.csproj `
-  -c Release `
-  -r win-x64 `
-  --self-contained true `
-  -p:PublishSingleFile=false `
-  -p:DebugType=None `
-  -p:DebugSymbols=false `
-  -o .\artifacts\publish
-```
+## Kebutuhan Penggunaan
 
-Untuk membundel SumatraPDF sebagai prerequisite, letakkan installer resmi di:
+Untuk menggunakan PrintOrder Client, dibutuhkan:
 
-```text
-installer\SumatraPDF-Installer.exe
-```
+* Perangkat dengan sistem operasi Windows.
+* Printer lokal yang sudah terpasang dan dapat digunakan.
+* Koneksi ke server PrintOrder.
+* Akun mitra PrintOrder.
+* Aplikasi PrintOrder Client yang sudah terpasang.
 
-Lalu build installer:
+## Alur Penggunaan Umum
 
-```powershell
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" .\PrintOrder.iss
-```
+1. Mitra menginstal dan membuka aplikasi PrintOrder Client.
+2. Mitra memastikan alamat server sudah sesuai.
+3. Mitra menghubungkan aplikasi dengan akun PrintOrder.
+4. Mitra memilih atau memastikan printer lokal yang digunakan.
+5. Aplikasi mulai terhubung ke server.
+6. Ketika pelanggan mengirim tugas cetak, tugas tersebut muncul pada daftar tugas.
+7. Pihak percetakan memeriksa tugas cetak.
+8. Pihak percetakan memproses atau menolak tugas cetak sesuai kondisi.
+9. Status tugas cetak diperbarui ke server.
+10. Aplikasi tetap berjalan di latar belakang untuk menerima tugas berikutnya.
 
-Output installer:
+## Hubungan dengan Komponen Lain
 
-```text
-artifacts\installer\PrintOrder-Setup-1.3.1.exe
-```
+PrintOrder Client merupakan salah satu bagian dari ekosistem PrintOrder.
+
+| Komponen          | Keterangan                                                                           |
+| ----------------- | ------------------------------------------------------------------------------------ |
+| PrintOrder Server | Mengelola data akun, toko, sesi cetak, tugas cetak, billing, dan komunikasi realtime |
+| Portal Mitra      | Digunakan mitra untuk mengelola toko, layanan, billing, dan akun                     |
+| Halaman Pelanggan | Digunakan pelanggan untuk mengunggah dokumen dan membuat tugas cetak                 |
+| PrintOrder Client | Digunakan percetakan untuk menerima dan memproses tugas cetak dari pelanggan         |
+
+## Status Proyek
+
+Aplikasi ini dikembangkan sebagai bagian dari proyek tugas akhir/skripsi dengan fokus pada perancangan dan pembangunan platform cetak dokumen pada layanan percetakan.
+
+## Dokumentasi Internal
+
+Dokumentasi teknis tambahan dapat disimpan pada direktori `docs/`.
+
+Dokumentasi teknis tidak dimaksudkan sebagai dokumentasi publik, melainkan sebagai catatan pengembangan dan pemeliharaan sistem.
+
+## Catatan Hak Akses
+
+[LICENCE](LICENCE)
+
+## Ringkasan
+
+PrintOrder Client membantu mitra percetakan menerima dan memproses tugas cetak dari pelanggan secara lebih terstruktur. Aplikasi ini menjadi penghubung antara server PrintOrder dan printer lokal, sehingga proses cetak dapat dikelola melalui sistem yang lebih rapi dan terintegrasi.
