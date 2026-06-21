@@ -1,10 +1,10 @@
 ; Inno Setup script for PrintOrder
 ; Build sequence from repository root:
-;   dotnet publish .\PrintOrder\PrintOrder.csproj -c Release -f net8.0-windows -o .\artifacts\publish
+;   dotnet publish .\PrintOrder\PrintOrder.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:DebugType=None -p:DebugSymbols=false -o .\artifacts\publish
 ;   & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" .\PrintOrder.iss
 
 #define MyAppName "PrintOrder"
-#define MyAppVersion "1.4.2"
+#define MyAppVersion "1.4.3"
 #define MyAppPublisher "PrintOrder"
 #define MyAppExeName "PrintOrder.exe"
 #define MyPublishDir "artifacts\publish"
@@ -67,6 +67,14 @@ Filename: "{tmp}\SumatraPDF-Installer.exe"; Parameters: "-install -s -all-users"
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
 [Code]
+const
+  UninstallDataModeAppOnly = 0;
+  UninstallDataModeUserData = 1;
+  UninstallDataModeFullReset = 2;
+
+var
+  UninstallDataMode: Integer;
+
 function SumatraPdfInstalled: Boolean;
 begin
   Result :=
@@ -83,9 +91,57 @@ begin
   Result := not SumatraPdfInstalled;
 end;
 
+procedure DeleteDirectoryIfExists(Path: String);
+begin
+  if DirExists(Path) then
+  begin
+    Log('Deleting directory: ' + Path);
+    if not DelTree(Path, True, True, True) then
+    begin
+      Log('Failed to delete directory: ' + Path);
+    end;
+  end;
+end;
+
+procedure DeleteRunRegistryValues();
+begin
+  { Menghapus auto-start aplikasi jika sebelumnya pernah diaktifkan. }
+  RegDeleteValue(
+    HKCU,
+    'Software\Microsoft\Windows\CurrentVersion\Run',
+    '{#MyAppName}'
+  );
+
+  { Legacy name jika pernah memakai nama lama. }
+  RegDeleteValue(
+    HKCU,
+    'Software\Microsoft\Windows\CurrentVersion\Run',
+    'PrintForm'
+  );
+end;
+
+procedure DeleteUserData();
+begin
+  { Data pengguna saat ini: konfigurasi lokal dan auth/pairing lokal. }
+  DeleteDirectoryIfExists(ExpandConstant('{localappdata}\PrintOrder'));
+
+  { Legacy path jika versi lama pernah memakai nama PrintForm. }
+  DeleteDirectoryIfExists(ExpandConstant('{localappdata}\PrintForm'));
+end;
+
+procedure DeleteDeviceIdentityData();
+begin
+  { Data perangkat: Client ID stabil yang disimpan untuk semua user. }
+  DeleteDirectoryIfExists(ExpandConstant('{commonappdata}\PrintOrder'));
+
+  { Legacy path jika versi lama pernah memakai nama PrintForm. }
+  DeleteDirectoryIfExists(ExpandConstant('{commonappdata}\PrintForm'));
+end;
+
 function InitializeSetup(): Boolean;
 begin
   Result := True;
+
 #if BundlesSumatraPdf == 0
   if not SumatraPdfInstalled then
   begin
@@ -97,4 +153,64 @@ begin
       MB_OK);
   end;
 #endif
+end;
+
+function InitializeUninstall(): Boolean;
+var
+  DeleteLocalDataAnswer: Integer;
+  ResetDeviceIdentityAnswer: Integer;
+begin
+  UninstallDataMode := UninstallDataModeAppOnly;
+
+  DeleteLocalDataAnswer :=
+    MsgBox(
+      'Pilih jenis uninstall PrintOrder.' + #13#10 + #13#10 +
+      'Pilih Yes jika ingin menghapus data pengguna PrintOrder pada Windows user saat ini.' + #13#10 +
+      'Data pengguna meliputi konfigurasi lokal dan sesi pairing akun.' + #13#10 + #13#10 +
+      'Pilih No jika hanya ingin uninstall aplikasi tanpa menghapus data lokal.' + #13#10 + #13#10 +
+      'Catatan: Client ID perangkat tidak akan dihapus pada pilihan ini.',
+      mbConfirmation,
+      MB_YESNO or MB_DEFBUTTON2
+    );
+
+  if DeleteLocalDataAnswer = IDYES then
+  begin
+    UninstallDataMode := UninstallDataModeUserData;
+
+    ResetDeviceIdentityAnswer :=
+      MsgBox(
+        'Reset identitas perangkat PrintOrder juga?' + #13#10 + #13#10 +
+        'Pilih Yes untuk menghapus seluruh data PrintOrder, termasuk Client ID perangkat di ProgramData.' + #13#10 +
+        'Jika Client ID dihapus, install ulang pada perangkat ini akan dianggap sebagai client baru oleh server.' + #13#10 + #13#10 +
+        'Pilih No jika hanya ingin menghapus data pengguna, tetapi tetap mempertahankan Client ID perangkat.',
+        mbConfirmation,
+        MB_YESNO or MB_DEFBUTTON2
+      );
+
+    if ResetDeviceIdentityAnswer = IDYES then
+    begin
+      UninstallDataMode := UninstallDataModeFullReset;
+    end;
+  end;
+
+  Result := True;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    { Selalu hapus auto-start agar Windows tidak mencoba menjalankan aplikasi yang sudah dihapus. }
+    DeleteRunRegistryValues();
+
+    if UninstallDataMode = UninstallDataModeUserData then
+    begin
+      DeleteUserData();
+    end
+    else if UninstallDataMode = UninstallDataModeFullReset then
+    begin
+      DeleteUserData();
+      DeleteDeviceIdentityData();
+    end;
+  end;
 end;
