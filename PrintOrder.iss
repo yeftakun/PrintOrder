@@ -74,6 +74,9 @@ const
 
 var
   UninstallDataMode: Integer;
+  UninstallUserDataCheck: TNewCheckBox;
+  UninstallDeviceResetCheck: TNewCheckBox;
+  UpdatingUninstallChecks: Boolean;
 
 function SumatraPdfInstalled: Boolean;
 begin
@@ -96,6 +99,7 @@ begin
   if DirExists(Path) then
   begin
     Log('Deleting directory: ' + Path);
+
     if not DelTree(Path, True, True, True) then
     begin
       Log('Failed to delete directory: ' + Path);
@@ -112,7 +116,7 @@ begin
     '{#MyAppName}'
   );
 
-  { Legacy name jika pernah memakai nama lama. }
+  { Legacy name jika versi lama pernah memakai nama PrintForm. }
   RegDeleteValue(
     HKCU,
     'Software\Microsoft\Windows\CurrentVersion\Run',
@@ -138,6 +142,192 @@ begin
   DeleteDirectoryIfExists(ExpandConstant('{commonappdata}\PrintForm'));
 end;
 
+procedure UpdateUninstallCheckboxState();
+begin
+  if UpdatingUninstallChecks then
+  begin
+    Exit;
+  end;
+
+  UpdatingUninstallChecks := True;
+
+  { Reset identitas perangkat selalu mencakup penghapusan data pengguna. }
+  if UninstallDeviceResetCheck.Checked then
+  begin
+    UninstallUserDataCheck.Checked := True;
+    UninstallUserDataCheck.Enabled := False;
+  end
+  else
+  begin
+    UninstallUserDataCheck.Enabled := True;
+  end;
+
+  UpdatingUninstallChecks := False;
+end;
+
+procedure UninstallUserDataCheckClick(Sender: TObject);
+begin
+  if UpdatingUninstallChecks then
+  begin
+    Exit;
+  end;
+
+  { Jika data pengguna tidak dihapus, reset perangkat juga tidak boleh aktif. }
+  if not UninstallUserDataCheck.Checked then
+  begin
+    UninstallDeviceResetCheck.Checked := False;
+  end;
+
+  UpdateUninstallCheckboxState();
+end;
+
+procedure UninstallDeviceResetCheckClick(Sender: TObject);
+begin
+  UpdateUninstallCheckboxState();
+end;
+
+function CreateWrappedLabel(
+  ParentForm: TSetupForm;
+  LeftValue: Integer;
+  TopValue: Integer;
+  WidthValue: Integer;
+  HeightValue: Integer;
+  TextValue: String
+): TNewStaticText;
+begin
+  Result := TNewStaticText.Create(ParentForm);
+  Result.Parent := ParentForm;
+  Result.Left := ScaleX(LeftValue);
+  Result.Top := ScaleY(TopValue);
+  Result.Width := ScaleX(WidthValue);
+  Result.Height := ScaleY(HeightValue);
+  Result.AutoSize := False;
+  Result.WordWrap := True;
+  Result.Caption := TextValue;
+end;
+
+function ShowUninstallDataOptionsForm(): Boolean;
+var
+  Form: TSetupForm;
+  OKButton: TNewButton;
+  CancelButton: TNewButton;
+begin
+  Result := False;
+
+  Form := CreateCustomForm();
+  try
+    Form.Caption := 'Uninstall PrintOrder';
+    Form.ClientWidth := ScaleX(540);
+    Form.ClientHeight := ScaleY(340);
+    Form.Position := poScreenCenter;
+
+    CreateWrappedLabel(
+      Form,
+      16,
+      14,
+      508,
+      24,
+      'Pilihan data saat uninstall'
+    );
+
+    CreateWrappedLabel(
+      Form,
+      16,
+      44,
+      508,
+      54,
+      'Uninstall akan menghapus aplikasi PrintOrder dari perangkat. Pilihan di bawah ini hanya digunakan jika Anda juga ingin menghapus data lokal yang tersimpan di Windows.'
+    );
+
+    UninstallUserDataCheck := TNewCheckBox.Create(Form);
+    UninstallUserDataCheck.Parent := Form;
+    UninstallUserDataCheck.Left := ScaleX(24);
+    UninstallUserDataCheck.Top := ScaleY(108);
+    UninstallUserDataCheck.Width := ScaleX(500);
+    UninstallUserDataCheck.Height := ScaleY(22);
+    UninstallUserDataCheck.Caption := 'Hapus data pengguna saat ini';
+    UninstallUserDataCheck.Checked := False;
+    UninstallUserDataCheck.OnClick := @UninstallUserDataCheckClick;
+
+    CreateWrappedLabel(
+      Form,
+      48,
+      132,
+      476,
+      54,
+      'Menghapus konfigurasi lokal dan sesi pairing akun pada user Windows saat ini, yaitu data di AppData\Local\PrintOrder. Client ID perangkat tetap dipertahankan.'
+    );
+
+    UninstallDeviceResetCheck := TNewCheckBox.Create(Form);
+    UninstallDeviceResetCheck.Parent := Form;
+    UninstallDeviceResetCheck.Left := ScaleX(48);
+    UninstallDeviceResetCheck.Top := ScaleY(194);
+    UninstallDeviceResetCheck.Width := ScaleX(476);
+    UninstallDeviceResetCheck.Height := ScaleY(22);
+    UninstallDeviceResetCheck.Caption := 'Hapus seluruhnya dan reset identitas perangkat';
+    UninstallDeviceResetCheck.Checked := False;
+    UninstallDeviceResetCheck.OnClick := @UninstallDeviceResetCheckClick;
+
+    CreateWrappedLabel(
+      Form,
+      72,
+      218,
+      452,
+      62,
+      'Menghapus data pengguna dan Client ID perangkat di ProgramData\PrintOrder. Jika aplikasi diinstall ulang, server akan menganggap perangkat ini sebagai client baru.'
+    );
+
+    CreateWrappedLabel(
+      Form,
+      16,
+      286,
+      508,
+      26,
+      'Catatan: SumatraPDF tidak ikut dihapus karena dapat digunakan oleh aplikasi lain.'
+    );
+
+    OKButton := TNewButton.Create(Form);
+    OKButton.Parent := Form;
+    OKButton.Left := ScaleX(344);
+    OKButton.Top := ScaleY(308);
+    OKButton.Width := ScaleX(86);
+    OKButton.Height := ScaleY(24);
+    OKButton.Caption := 'Lanjutkan';
+    OKButton.ModalResult := mrOk;
+
+    CancelButton := TNewButton.Create(Form);
+    CancelButton.Parent := Form;
+    CancelButton.Left := ScaleX(438);
+    CancelButton.Top := ScaleY(308);
+    CancelButton.Width := ScaleX(86);
+    CancelButton.Height := ScaleY(24);
+    CancelButton.Caption := 'Batal';
+    CancelButton.ModalResult := mrCancel;
+
+    UpdateUninstallCheckboxState();
+
+    if Form.ShowModal = mrOk then
+    begin
+      if UninstallDeviceResetCheck.Checked then
+      begin
+        UninstallDataMode := UninstallDataModeFullReset;
+      end
+      else if UninstallUserDataCheck.Checked then
+      begin
+        UninstallDataMode := UninstallDataModeUserData;
+      end
+      else
+      begin
+        UninstallDataMode := UninstallDataModeAppOnly;
+      end;
+
+      Result := True;
+    end;
+  finally
+    Form.Free();
+  end;
+end;
+
 function InitializeSetup(): Boolean;
 begin
   Result := True;
@@ -156,44 +346,9 @@ begin
 end;
 
 function InitializeUninstall(): Boolean;
-var
-  DeleteLocalDataAnswer: Integer;
-  ResetDeviceIdentityAnswer: Integer;
 begin
   UninstallDataMode := UninstallDataModeAppOnly;
-
-  DeleteLocalDataAnswer :=
-    MsgBox(
-      'Pilih jenis uninstall PrintOrder.' + #13#10 + #13#10 +
-      'Pilih Yes jika ingin menghapus data pengguna PrintOrder pada Windows user saat ini.' + #13#10 +
-      'Data pengguna meliputi konfigurasi lokal dan sesi pairing akun.' + #13#10 + #13#10 +
-      'Pilih No jika hanya ingin uninstall aplikasi tanpa menghapus data lokal.' + #13#10 + #13#10 +
-      'Catatan: Client ID perangkat tidak akan dihapus pada pilihan ini.',
-      mbConfirmation,
-      MB_YESNO or MB_DEFBUTTON2
-    );
-
-  if DeleteLocalDataAnswer = IDYES then
-  begin
-    UninstallDataMode := UninstallDataModeUserData;
-
-    ResetDeviceIdentityAnswer :=
-      MsgBox(
-        'Reset identitas perangkat PrintOrder juga?' + #13#10 + #13#10 +
-        'Pilih Yes untuk menghapus seluruh data PrintOrder, termasuk Client ID perangkat di ProgramData.' + #13#10 +
-        'Jika Client ID dihapus, install ulang pada perangkat ini akan dianggap sebagai client baru oleh server.' + #13#10 + #13#10 +
-        'Pilih No jika hanya ingin menghapus data pengguna, tetapi tetap mempertahankan Client ID perangkat.',
-        mbConfirmation,
-        MB_YESNO or MB_DEFBUTTON2
-      );
-
-    if ResetDeviceIdentityAnswer = IDYES then
-    begin
-      UninstallDataMode := UninstallDataModeFullReset;
-    end;
-  end;
-
-  Result := True;
+  Result := ShowUninstallDataOptionsForm();
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
