@@ -11,6 +11,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.WebSockets;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -389,7 +390,7 @@ namespace PrintOrder
                 _jobProcessing = false;
                 if (!string.IsNullOrWhiteSpace(_activeJobTempPath))
                 {
-                    TryDeleteTempFile(_activeJobTempPath);
+                    TrySecureDeleteFile(_activeJobTempPath);
                     _activeJobTempPath = null;
                 }
                 if (!string.IsNullOrWhiteSpace(jobId))
@@ -1378,7 +1379,7 @@ namespace PrintOrder
                 var printStartResult = await UpdateJobStatusAsync(job.Id, "printing");
                 if (!printStartResult.IsSuccess)
                 {
-                    TryDeleteTempFile(downloadPath);
+                    TrySecureDeleteFile(downloadPath);
                     _activeJobTempPath = null;
                     return HandleJobStartDenied(job, printStartResult);
                 }
@@ -1406,7 +1407,7 @@ namespace PrintOrder
                 }
 
                 var printed = await PrintNonImageAsync(downloadPath, job.PrintConfig);
-                TryDeleteTempFile(downloadPath);
+                TrySecureDeleteFile(downloadPath);
                 _activeJobTempPath = null;
                 await UpdateJobStatusAsync(job.Id, printed ? "done" : "failed");
             }
@@ -1429,7 +1430,7 @@ namespace PrintOrder
                     _activeJobId = null;
                     if (!string.IsNullOrWhiteSpace(_activeJobTempPath))
                     {
-                        TryDeleteTempFile(_activeJobTempPath);
+                        TrySecureDeleteFile(_activeJobTempPath);
                         _activeJobTempPath = null;
                     }
                 }
@@ -1612,7 +1613,7 @@ namespace PrintOrder
                     statusLabel.Text = "Download file job gagal: file temp kosong.";
                     Trace.TraceWarning(
                         $"Job file download validation failed. jobId={jobId}, sizeBytes={fileSize}, contentLengthBytes={FormatNullableLength(contentLength)}, elapsedMs={stopwatch.ElapsedMilliseconds}, tempPath=\"{filePath}\", reason=\"empty file\"");
-                    TryDeleteTempFile(filePath);
+                    TrySecureDeleteFile(filePath);
                     return null;
                 }
 
@@ -1621,7 +1622,7 @@ namespace PrintOrder
                     statusLabel.Text = "Download file job gagal: ukuran file tidak lengkap.";
                     Trace.TraceWarning(
                         $"Job file download validation failed. jobId={jobId}, sizeBytes={fileSize}, contentLengthBytes={contentLength.Value}, elapsedMs={stopwatch.ElapsedMilliseconds}, tempPath=\"{filePath}\", reason=\"content length mismatch\"");
-                    TryDeleteTempFile(filePath);
+                    TrySecureDeleteFile(filePath);
                     return null;
                 }
 
@@ -1636,7 +1637,7 @@ namespace PrintOrder
                     $"Job file download timeout. jobId={jobId}, timeoutSeconds={timeouts.DownloadTimeoutSeconds}, elapsedMs={stopwatch.ElapsedMilliseconds}, tempPath=\"{filePath ?? "-"}\"");
                 if (!string.IsNullOrWhiteSpace(filePath))
                 {
-                    TryDeleteTempFile(filePath);
+                    TrySecureDeleteFile(filePath);
                 }
 
                 return null;
@@ -1648,7 +1649,7 @@ namespace PrintOrder
                     $"Job file download error. jobId={jobId}, elapsedMs={stopwatch.ElapsedMilliseconds}, tempPath=\"{filePath ?? "-"}\", errorType={ex.GetType().Name}, message=\"{ex.Message}\"");
                 if (!string.IsNullOrWhiteSpace(filePath))
                 {
-                    TryDeleteTempFile(filePath);
+                    TrySecureDeleteFile(filePath);
                 }
 
                 return null;
@@ -1936,7 +1937,7 @@ namespace PrintOrder
             finally
             {
                 stopwatch.Stop();
-                TryDeleteTempDirectory(userDataDir);
+                TrySecureDeleteDirectory(userDataDir);
             }
         }
 
@@ -2220,22 +2221,105 @@ namespace PrintOrder
             return "msedge.exe";
         }
 
-        private void TryDeleteTempFile(string path)
+        private static void TrySecureDeleteFile(string path)
         {
             try
             {
-                if (File.Exists(path))
+                if (!File.Exists(path))
                 {
-                    File.Delete(path);
+                    return;
                 }
+
+                TryOverwriteFile(path);
+                File.Delete(path);
             }
-            catch
+            catch (Exception ex)
             {
-                // Abaikan jika file tidak bisa dihapus
+                Trace.TraceWarning(
+                    $"Secure temp file delete failed. path=\"{path}\", errorType={ex.GetType().Name}, message=\"{ex.Message}\"");
+                TryDeleteFileFallback(path);
             }
         }
 
-        private void TryDeleteTempDirectory(string path)
+        private static void TrySecureDeleteDirectory(string path)
+        {
+            try
+            {
+                if (!Directory.Exists(path))
+                {
+                    return;
+                }
+
+                foreach (var filePath in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+                {
+                    TrySecureDeleteFile(filePath);
+                }
+
+                Directory.Delete(path, true);
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceWarning(
+                    $"Secure temp directory delete failed. path=\"{path}\", errorType={ex.GetType().Name}, message=\"{ex.Message}\"");
+                TryDeleteDirectoryFallback(path);
+            }
+        }
+
+        private static void TryOverwriteFile(string path)
+        {
+            var fileInfo = new FileInfo(path);
+            if (!fileInfo.Exists || fileInfo.Length <= 0)
+            {
+                return;
+            }
+
+            if ((fileInfo.Attributes & FileAttributes.ReadOnly) != 0)
+            {
+                fileInfo.Attributes &= ~FileAttributes.ReadOnly;
+            }
+
+            const int bufferSize = 1024 * 1024;
+            var buffer = new byte[(int)Math.Min(bufferSize, fileInfo.Length)];
+            RandomNumberGenerator.Fill(buffer);
+
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize,
+                FileOptions.WriteThrough | FileOptions.SequentialScan);
+
+            var remaining = fileInfo.Length;
+            while (remaining > 0)
+            {
+                var bytesToWrite = (int)Math.Min(buffer.Length, remaining);
+                stream.Write(buffer, 0, bytesToWrite);
+                remaining -= bytesToWrite;
+            }
+
+            stream.Flush(true);
+        }
+
+        private static void TryDeleteFileFallback(string path)
+        {
+            try
+            {
+                if (!File.Exists(path))
+                {
+                    return;
+                }
+
+                File.SetAttributes(path, FileAttributes.Normal);
+                File.Delete(path);
+            }
+            catch
+            {
+                // Best-effort cleanup; jangan gagalkan proses print karena file temp terkunci.
+            }
+        }
+
+        private static void TryDeleteDirectoryFallback(string path)
         {
             try
             {
@@ -2246,7 +2330,7 @@ namespace PrintOrder
             }
             catch
             {
-                // Abaikan jika folder tidak bisa dihapus
+                // Best-effort cleanup; jangan gagalkan proses print karena folder temp terkunci.
             }
         }
 

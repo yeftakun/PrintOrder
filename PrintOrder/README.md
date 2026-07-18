@@ -59,11 +59,12 @@ edge_window_print_timeout_seconds=60
 
 ## Print behavior
 
-- Jobs are downloaded from the server to a temp file, printed locally, then the temp file is deleted.
+- Jobs are downloaded from the server to a temp file, printed locally, then the temp file is overwritten and deleted on a best-effort basis.
 - Images (JPG/PNG/BMP) are printed via `PrintDocument`.
 - PDF and other file types are printed via SumatraPDF (preferred) or Edge.
 - PDF page ranges such as `1, 3-5` are sent through SumatraPDF; Edge fallback is used only for full-page PDF printing.
 - If the selected printer is offline, the job is set to `pending` (not sent to the spooler).
+- Secure temp cleanup reduces recovery risk for PrintOrder temp files, especially on HDD, but does not guarantee unrecoverability on SSD/wear-leveling storage, Windows print spooler, Edge/Sumatra/cache files, backups, shadow copies, or files deleted before this feature existed.
 
 ## Job status notes
 

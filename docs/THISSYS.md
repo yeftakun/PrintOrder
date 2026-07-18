@@ -590,7 +590,7 @@ Urutan print gambar:
 2. Gambar di-fit ke halaman berdasarkan rasio gambar dan rasio kertas.
 3. `_activeContentScale` diterapkan sebagai skala.
 4. Gambar digambar center di halaman.
-5. `EndPrint` menghapus file temp.
+5. `EndPrint` melakukan secure cleanup best-effort pada file temp: overwrite isi file, flush, lalu delete.
 6. `EndPrint` mengubah status job ke `done` jika print action adalah `PrintToPrinter`, selain itu `failed`.
 
 Urutan print PDF:
@@ -619,7 +619,7 @@ Urutan akhir:
 
 1. Jika print non-image mengembalikan sukses, status job diubah ke `done`.
 2. Jika gagal, status job diubah ke `failed`.
-3. File temp dihapus.
+3. File temp dibersihkan dengan secure cleanup best-effort: overwrite isi file, flush, lalu delete.
 4. `_jobProcessing=false` dan `_activeJobId` dibersihkan.
 5. `JobListForm` refresh ulang daftar job.
 
@@ -1040,7 +1040,8 @@ Pola yang dipakai:
 - Jika job list sedang loading, refresh tambahan ditunda lewat `_pendingRefresh`.
 - Jika printer offline, job tidak dipaksa print dan status diubah ke `pending`.
 - Jika job status berubah sebelum aksi print/reject, aksi dibatalkan dan list refresh.
-- File temp dihapus pada jalur sukses dan gagal.
+- File temp dibersihkan dengan secure cleanup best-effort pada jalur sukses dan gagal.
+- Secure cleanup mengurangi risiko recovery file temp aplikasi, tetapi tidak menjamin data tidak bisa dipulihkan dari SSD/wear leveling, spooler Windows, cache Edge/Sumatra/aplikasi eksternal, backup, shadow copy, atau file yang sudah terhapus sebelum fitur ini ada.
 
 Konsekuensi:
 
